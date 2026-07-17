@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Affluence — L'Orange Bleue Orgeval</title>
+<style>
+  :root{
+    --bg:#0f1024; --card:#181a3a; --line:#5385ed; --line2:#2b2e5e;
+    --text:#eef1ff; --muted:#9aa0c7; --accent:#ff7a1a; --good:#37c978; --warn:#ffb020;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text)}
+  .wrap{max-width:900px;margin:0 auto;padding:20px 16px 60px}
+  h1{font-size:1.25rem;margin:0 0 2px}
+  .sub{color:var(--muted);font-size:.85rem;margin-bottom:20px}
+  .live{display:flex;align-items:center;gap:18px;background:var(--card);border-radius:16px;padding:20px;margin-bottom:16px}
+  .live .num{font-size:3.4rem;font-weight:800;line-height:1}
+  .live .lbl{color:var(--muted);font-size:.8rem;text-transform:uppercase;letter-spacing:.05em}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--good);display:inline-block;margin-right:6px;box-shadow:0 0 0 0 rgba(55,201,120,.6);animation:pulse 2s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(55,201,120,.5)}70%{box-shadow:0 0 0 10px rgba(55,201,120,0)}100%{box-shadow:0 0 0 0 rgba(55,201,120,0)}}
+  .card{background:var(--card);border-radius:16px;padding:18px;margin-bottom:16px}
+  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:12px}
+  select,button{background:#0f1130;color:var(--text);border:1px solid var(--line2);border-radius:10px;padding:8px 12px;font-size:.9rem}
+  button{cursor:pointer}
+  .stats{display:flex;gap:22px;flex-wrap:wrap;color:var(--muted);font-size:.85rem}
+  .stats b{color:var(--text);font-size:1.05rem}
+  canvas{width:100%;height:320px;display:block}
+  .empty{color:var(--muted);text-align:center;padding:40px 0}
+  a{color:var(--line)}
+  .foot{color:var(--muted);font-size:.75rem;text-align:center;margin-top:24px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🏋️ Affluence — L'Orange Bleue Orgeval</h1>
+  <div class="sub">Capté toutes les 5 min · l'appli ne montre que l'instant présent, ici tu vois toute la journée.</div>
+
+  <div class="live">
+    <div>
+      <div class="num" id="liveNum">–</div>
+      <div class="lbl"><span class="dot"></span><span id="liveWhen">chargement…</span></div>
+    </div>
+    <div style="flex:1"></div>
+    <div style="text-align:right">
+      <div class="lbl">Pic du jour</div>
+      <div style="font-size:1.6rem;font-weight:700" id="peakNum">–</div>
+      <div class="lbl" id="peakWhen"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div class="stats">
+        <span>Moyenne <b id="stAvg">–</b></span>
+        <span>Max <b id="stMax">–</b></span>
+        <span>Mesures <b id="stN">–</b></span>
+      </div>
+      <div>
+        <select id="daySel"></select>
+        <button id="refresh">↻</button>
+      </div>
+    </div>
+    <canvas id="chart"></canvas>
+    <div class="empty" id="empty" style="display:none">Pas encore de données pour ce jour.</div>
+  </div>
+
+  <div class="foot">Source : API publique L'Orange Bleue · <span id="lastUpd"></span></div>
+</div>
+
+<script>
+const TZ = 'Europe/Paris';
+const OPEN_HOUR = 6, CLOSE_HOUR = 23; // fenêtre affichée
+let ROWS = []; // {t: Date, count, dayKey, minOfDay, hh:mm}
+
+const fmtDay = new Intl.DateTimeFormat('fr-CA', {timeZone:TZ, year:'numeric', month:'2-digit', day:'2-digit'});
+const fmtTime = new Intl.DateTimeFormat('fr-FR', {timeZone:TZ, hour:'2-digit', minute:'2-digit'});
+const fmtDayLabel = new Intl.DateTimeFormat('fr-FR', {timeZone:TZ, weekday:'long', day:'numeric', month:'long'});
+
+function partsInTZ(date){
+  const p = {};
+  for(const {type,value} of new Intl.DateTimeFormat('en-GB',{timeZone:TZ,hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(date)){
+    p[type]=value;
+  }
+  return {h:+p.hour, m:+p.minute};
+}
+
+async function load(){
+  const res = await fetch('data.csv?_=' + Date.now());
+  const text = await res.text();
+  const lines = text.trim().split(/\r?\n/).slice(1);
+  ROWS = lines.filter(Boolean).map(l => {
+    const [ts, c] = l.split(',');
+    const t = new Date(ts);
+    const {h,m} = partsInTZ(t);
+    return { t, count:+c, dayKey:fmtDay.format(t), minOfDay:h*60+m, hhmm:fmtTime.format(t) };
+  }).filter(r => Number.isFinite(r.count));
+  buildDaySelector();
+  render();
+  document.getElementById('lastUpd').textContent = 'MàJ ' + new Date().toLocaleTimeString('fr-FR');
+}
+
+function buildDaySelector(){
+  const sel = document.getElementById('daySel');
+  const days = [...new Set(ROWS.map(r=>r.dayKey))].sort().reverse();
+  const prev = sel.value;
+  sel.innerHTML = '';
+  for(const d of days){
+    const o = document.createElement('option');
+    o.value = d;
+    // libellé lisible
+    const sample = ROWS.find(r=>r.dayKey===d);
+    o.textContent = sample ? fmtDayLabel.format(sample.t) : d;
+    sel.appendChild(o);
+  }
+  if(days.includes(prev)) sel.value = prev;
+}
+
+function render(){
+  const sel = document.getElementById('daySel');
+  const day = sel.value || (ROWS.length ? ROWS[ROWS.length-1].dayKey : null);
+  const pts = ROWS.filter(r => r.dayKey === day).sort((a,b)=>a.minOfDay-b.minOfDay);
+
+  // Live = dernière mesure globale
+  const last = ROWS[ROWS.length-1];
+  document.getElementById('liveNum').textContent = last ? last.count : '–';
+  document.getElementById('liveWhen').textContent = last ? ('En direct · ' + last.hhmm) : '—';
+
+  const empty = document.getElementById('empty');
+  const canvas = document.getElementById('chart');
+  if(!pts.length){ empty.style.display='block'; canvas.style.display='none';
+    ['stAvg','stMax','stN','peakNum'].forEach(id=>document.getElementById(id).textContent='–');
+    document.getElementById('peakWhen').textContent='';
+    return;
+  }
+  empty.style.display='none'; canvas.style.display='block';
+
+  const counts = pts.map(p=>p.count);
+  const max = Math.max(...counts);
+  const avg = Math.round(counts.reduce((a,b)=>a+b,0)/counts.length);
+  const peak = pts[counts.indexOf(max)];
+  document.getElementById('stAvg').textContent = avg;
+  document.getElementById('stMax').textContent = max;
+  document.getElementById('stN').textContent = pts.length;
+  document.getElementById('peakNum').textContent = max;
+  document.getElementById('peakWhen').textContent = 'vers ' + peak.hhmm;
+
+  drawChart(canvas, pts, max);
+}
+
+function drawChart(canvas, pts, maxCount){
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth, H = 320;
+  canvas.width = W*dpr; canvas.height = H*dpr;
+  const ctx = canvas.getContext('2d'); ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,W,H);
+
+  const padL=36, padR=12, padT=16, padB=26;
+  const x0=padL, x1=W-padR, y0=H-padB, y1=padT;
+  const yMax = Math.max(5, Math.ceil(maxCount*1.15));
+  const minX = OPEN_HOUR*60, maxX = CLOSE_HOUR*60;
+  const sx = m => x0 + (x1-x0)*(m-minX)/(maxX-minX);
+  const sy = c => y0 + (y1-y0)*(c/yMax);
+
+  // grille horizontale + labels Y
+  ctx.strokeStyle = '#2b2e5e'; ctx.fillStyle = '#9aa0c7'; ctx.font = '11px system-ui'; ctx.lineWidth=1;
+  const yStep = niceStep(yMax);
+  for(let v=0; v<=yMax; v+=yStep){
+    const y=sy(v); ctx.beginPath(); ctx.moveTo(x0,y); ctx.lineTo(x1,y); ctx.stroke();
+    ctx.fillText(String(v), 8, y+4);
+  }
+  // labels X (heures)
+  ctx.textAlign='center';
+  for(let h=OPEN_HOUR; h<=CLOSE_HOUR; h+=3){
+    const x=sx(h*60); ctx.fillText(h+'h', x, H-8);
+  }
+  ctx.textAlign='left';
+
+  // aire + ligne
+  ctx.beginPath();
+  pts.forEach((p,i)=>{ const X=sx(p.minOfDay),Y=sy(p.count); i?ctx.lineTo(X,Y):ctx.moveTo(X,Y); });
+  const lastP = pts[pts.length-1];
+  ctx.lineTo(sx(lastP.minOfDay), y0); ctx.lineTo(sx(pts[0].minOfDay), y0); ctx.closePath();
+  const grad = ctx.createLinearGradient(0,y1,0,y0);
+  grad.addColorStop(0,'rgba(83,133,237,.45)'); grad.addColorStop(1,'rgba(83,133,237,0)');
+  ctx.fillStyle=grad; ctx.fill();
+
+  ctx.beginPath();
+  pts.forEach((p,i)=>{ const X=sx(p.minOfDay),Y=sy(p.count); i?ctx.lineTo(X,Y):ctx.moveTo(X,Y); });
+  ctx.strokeStyle='#5385ed'; ctx.lineWidth=2; ctx.stroke();
+
+  // point live (dernier)
+  ctx.fillStyle='#ff7a1a';
+  ctx.beginPath(); ctx.arc(sx(lastP.minOfDay), sy(lastP.count), 4, 0, 7); ctx.fill();
+}
+
+function niceStep(max){
+  if(max<=10) return 2;
+  if(max<=25) return 5;
+  if(max<=60) return 10;
+  return 20;
+}
+
+document.getElementById('daySel').addEventListener('change', render);
+document.getElementById('refresh').addEventListener('click', load);
+load();
+setInterval(load, 60000); // rafraîchit toutes les minutes
+</script>
+</body>
+</html>
