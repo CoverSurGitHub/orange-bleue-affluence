@@ -28,7 +28,14 @@
   button{cursor:pointer}
   .stats{display:flex;gap:22px;flex-wrap:wrap;color:var(--muted);font-size:.85rem}
   .stats b{color:var(--text);font-size:1.05rem}
-  canvas{width:100%;height:320px;display:block}
+  .seg{display:inline-flex;border:1px solid var(--line2);border-radius:10px;overflow:hidden;vertical-align:middle;margin-right:6px}
+  .seg-btn{border:0;border-radius:0;background:#0f1130;color:var(--muted);padding:8px 12px;font-size:.85rem}
+  .seg-btn.active{background:var(--line);color:#fff}
+  .chartwrap{position:relative;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
+  canvas{height:320px;display:block}
+  .tip{position:absolute;pointer-events:none;background:#0b0c22;border:1px solid var(--line);border-radius:8px;
+       padding:6px 9px;font-size:.8rem;white-space:nowrap;transform:translate(-50%,-115%);z-index:5;box-shadow:0 4px 14px rgba(0,0,0,.5)}
+  .tip b{color:var(--accent);font-size:.95rem}
   .empty{color:var(--muted);text-align:center;padding:40px 0}
   a{color:var(--line)}
   .foot{color:var(--muted);font-size:.75rem;text-align:center;margin-top:24px}
@@ -65,12 +72,19 @@
         <span id="stNwrap">Mesures <b id="stN">–</b></span>
       </div>
       <div>
+        <span id="granWrap" class="seg">
+          <button class="seg-btn active" id="granHours">Heures</button>
+          <button class="seg-btn" id="granMin">Minutes</button>
+        </span>
         <select id="daySel"></select>
         <select id="weekdaySel" style="display:none"></select>
         <button id="refresh">↻</button>
       </div>
     </div>
-    <canvas id="chart"></canvas>
+    <div class="chartwrap" id="chartwrap">
+      <canvas id="chart"></canvas>
+      <div id="tip" class="tip" style="display:none"></div>
+    </div>
     <div class="empty" id="empty" style="display:none">Pas encore de données pour ce jour.</div>
     <div id="weekNote" style="display:none;color:var(--muted);font-size:.78rem;margin-top:10px">
       Affluence <b>moyenne historique</b> par heure (calculée par la salle, en % de capacité, arrondie).
@@ -87,6 +101,9 @@ const OPEN_HOUR = 6, CLOSE_HOUR = 23; // fenêtre affichée
 let ROWS = []; // {t: Date, count, dayKey, minOfDay, hh:mm}
 let WEEK = null; // {updated, limits, days:{MONDAY:[...]}}
 let MODE = 'measured'; // 'measured' | 'week'
+let GRAN = 'hours';    // 'hours' | 'min' — granularité de l'axe temps (onglet Mesuré)
+let HIT = [];          // points cliquables {x,y,count,hhmm} en px CSS relatifs au canvas
+const PX_PER_MIN = 5;  // largeur en mode Minutes (scroll horizontal)
 
 const WEEKDAYS = [
   ['MONDAY','Lundi'],['TUESDAY','Mardi'],['WEDNESDAY','Mercredi'],['THURSDAY','Jeudi'],
@@ -145,8 +162,20 @@ function setMode(m){
   document.getElementById('weekdaySel').style.display = m==='week' ? '' : 'none';
   document.getElementById('stNwrap').style.display = m==='measured' ? '' : 'none';
   document.getElementById('weekNote').style.display = m==='week' ? '' : 'none';
+  document.getElementById('granWrap').style.display = m==='measured' ? '' : 'none';
+  hideTip();
   render();
 }
+
+function setGran(g){
+  GRAN = g;
+  document.getElementById('granHours').classList.toggle('active', g==='hours');
+  document.getElementById('granMin').classList.toggle('active', g==='min');
+  hideTip();
+  render();
+}
+
+function hideTip(){ const t=document.getElementById('tip'); if(t) t.style.display='none'; }
 
 function buildDaySelector(){
   const sel = document.getElementById('daySel');
@@ -198,50 +227,73 @@ function render(){
   drawChart(canvas, pts, max);
 }
 
+function fmtHM(m){ const h=Math.floor(m/60), mm=m%60; return h+'h'+(mm?String(mm).padStart(2,'0'):''); }
+
 function drawChart(canvas, pts, maxCount){
+  const lastP = pts[pts.length-1];
+  const containerW = document.getElementById('chartwrap').clientWidth || canvas.clientWidth || 320;
+
+  // Fenêtre temporelle + largeur selon la granularité
+  let minX, maxX, W;
+  if(GRAN === 'min'){
+    minX = Math.max(OPEN_HOUR*60, pts[0].minOfDay - 10);
+    maxX = Math.min(CLOSE_HOUR*60, lastP.minOfDay + 10);
+    if(maxX - minX < 30) maxX = minX + 30;               // évite un axe écrasé si peu de points
+    W = Math.max(containerW, Math.round((maxX - minX) * PX_PER_MIN));
+  } else {
+    minX = OPEN_HOUR*60; maxX = CLOSE_HOUR*60; W = containerW;
+  }
+  const H = 320;
+
   const dpr = window.devicePixelRatio || 1;
-  const W = canvas.clientWidth, H = 320;
+  canvas.style.width = W + 'px';
   canvas.width = W*dpr; canvas.height = H*dpr;
-  const ctx = canvas.getContext('2d'); ctx.scale(dpr,dpr);
+  const ctx = canvas.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0);
   ctx.clearRect(0,0,W,H);
 
-  const padL=36, padR=12, padT=16, padB=26;
+  const padL=36, padR=14, padT=16, padB=26;
   const x0=padL, x1=W-padR, y0=H-padB, y1=padT;
   const yMax = Math.max(5, Math.ceil(maxCount*1.15));
-  const minX = OPEN_HOUR*60, maxX = CLOSE_HOUR*60;
   const sx = m => x0 + (x1-x0)*(m-minX)/(maxX-minX);
   const sy = c => y0 + (y1-y0)*(c/yMax);
 
-  // grille horizontale + labels Y
+  // grille + labels Y
   ctx.strokeStyle = '#2b2e5e'; ctx.fillStyle = '#9aa0c7'; ctx.font = '11px system-ui'; ctx.lineWidth=1;
   const yStep = niceStep(yMax);
   for(let v=0; v<=yMax; v+=yStep){
     const y=sy(v); ctx.beginPath(); ctx.moveTo(x0,y); ctx.lineTo(x1,y); ctx.stroke();
     ctx.fillText(String(v), 8, y+4);
   }
-  // labels X (heures)
+  // labels X
   ctx.textAlign='center';
-  for(let h=OPEN_HOUR; h<=CLOSE_HOUR; h+=3){
-    const x=sx(h*60); ctx.fillText(h+'h', x, H-8);
-  }
+  const step = GRAN==='min' ? 30 : 180; // 30 min ou 3 h
+  const start = Math.ceil(minX/step)*step;
+  for(let m=start; m<=maxX; m+=step){ ctx.fillText(fmtHM(m), sx(m), H-8); }
   ctx.textAlign='left';
 
-  // aire + ligne
+  // aire
   ctx.beginPath();
   pts.forEach((p,i)=>{ const X=sx(p.minOfDay),Y=sy(p.count); i?ctx.lineTo(X,Y):ctx.moveTo(X,Y); });
-  const lastP = pts[pts.length-1];
   ctx.lineTo(sx(lastP.minOfDay), y0); ctx.lineTo(sx(pts[0].minOfDay), y0); ctx.closePath();
   const grad = ctx.createLinearGradient(0,y1,0,y0);
   grad.addColorStop(0,'rgba(83,133,237,.45)'); grad.addColorStop(1,'rgba(83,133,237,0)');
   ctx.fillStyle=grad; ctx.fill();
 
+  // ligne
   ctx.beginPath();
   pts.forEach((p,i)=>{ const X=sx(p.minOfDay),Y=sy(p.count); i?ctx.lineTo(X,Y):ctx.moveTo(X,Y); });
   ctx.strokeStyle='#5385ed'; ctx.lineWidth=2; ctx.stroke();
 
-  // point live (dernier)
-  ctx.fillStyle='#ff7a1a';
-  ctx.beginPath(); ctx.arc(sx(lastP.minOfDay), sy(lastP.count), 4, 0, 7); ctx.fill();
+  // un point par mesure + mémorisation pour le clic
+  HIT = [];
+  const rPt = GRAN==='min' ? 3.2 : (pts.length>120 ? 1.6 : 2.6);
+  pts.forEach((p,i)=>{
+    const X=sx(p.minOfDay), Y=sy(p.count);
+    const isLast = i===pts.length-1;
+    ctx.fillStyle = isLast ? '#ff7a1a' : '#a9c1f5';
+    ctx.beginPath(); ctx.arc(X, Y, isLast?4:rPt, 0, 7); ctx.fill();
+    HIT.push({x:X, y:Y, count:p.count, hhmm:p.hhmm});
+  });
 }
 
 function renderWeek(){
@@ -275,10 +327,12 @@ function drawBars(canvas, slots){
   const low = lim.utilizationIndicatorLowLimitPercentage, normal = lim.utilizationIndicatorNormalLimitPercentage;
   const colorFor = p => p < low ? '#37c978' : (p < normal ? '#5385ed' : '#ff5a3c'); // faible / normal / forte
 
+  HIT = []; hideTip();
+  canvas.style.width = '100%';
   const dpr = window.devicePixelRatio || 1;
   const W = canvas.clientWidth, H = 320;
   canvas.width = W*dpr; canvas.height = H*dpr;
-  const ctx = canvas.getContext('2d'); ctx.scale(dpr,dpr); ctx.clearRect(0,0,W,H);
+  const ctx = canvas.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
 
   const padL=36, padR=12, padT=16, padB=26;
   const x0=padL, x1=W-padR, y0=H-padB, y1=padT;
@@ -317,7 +371,29 @@ document.getElementById('daySel').addEventListener('change', render);
 document.getElementById('weekdaySel').addEventListener('change', render);
 document.getElementById('tabMeasured').addEventListener('click', ()=>setMode('measured'));
 document.getElementById('tabWeek').addEventListener('click', ()=>setMode('week'));
+document.getElementById('granHours').addEventListener('click', ()=>setGran('hours'));
+document.getElementById('granMin').addEventListener('click', ()=>setGran('min'));
 document.getElementById('refresh').addEventListener('click', load);
+
+// Bulle au survol / tap : affiche l'heure exacte et le nombre de visiteurs du point le plus proche
+function showTipAt(clientX){
+  if(MODE!=='measured' || !HIT.length){ hideTip(); return; }
+  const canvas = document.getElementById('chart');
+  const px = clientX - canvas.getBoundingClientRect().left;
+  let best=null, bd=Infinity;
+  for(const h of HIT){ const d=Math.abs(h.x-px); if(d<bd){ bd=d; best=h; } }
+  if(!best) return;
+  const tip = document.getElementById('tip');
+  tip.innerHTML = best.hhmm + ' · <b>' + best.count + '</b> visiteur' + (best.count>1?'s':'');
+  tip.style.left = best.x + 'px';
+  tip.style.top  = best.y + 'px';
+  tip.style.display = 'block';
+}
+const wrap = document.getElementById('chartwrap');
+wrap.addEventListener('pointermove', e => { if(e.pointerType==='mouse') showTipAt(e.clientX); });
+wrap.addEventListener('pointerdown', e => showTipAt(e.clientX)); // tap mobile
+wrap.addEventListener('pointerleave', e => { if(e.pointerType==='mouse') hideTip(); });
+
 load();
 setInterval(load, 60000); // rafraîchit toutes les minutes
 </script>
