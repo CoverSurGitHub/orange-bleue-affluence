@@ -19,6 +19,9 @@
   .live .lbl{color:var(--muted);font-size:.8rem;text-transform:uppercase;letter-spacing:.05em}
   .dot{width:10px;height:10px;border-radius:50%;background:var(--good);display:inline-block;margin-right:6px;box-shadow:0 0 0 0 rgba(55,201,120,.6);animation:pulse 2s infinite}
   @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(55,201,120,.5)}70%{box-shadow:0 0 0 10px rgba(55,201,120,0)}100%{box-shadow:0 0 0 0 rgba(55,201,120,0)}}
+  .tabs{display:flex;gap:8px;margin-bottom:12px}
+  .tab{flex:0 0 auto;background:#0f1130;border:1px solid var(--line2);color:var(--muted)}
+  .tab.active{background:var(--line);color:#fff;border-color:var(--line)}
   .card{background:var(--card);border-radius:16px;padding:18px;margin-bottom:16px}
   .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:12px}
   select,button{background:#0f1130;color:var(--text);border:1px solid var(--line2);border-radius:10px;padding:8px 12px;font-size:.9rem}
@@ -49,20 +52,30 @@
     </div>
   </div>
 
+  <div class="tabs">
+    <button class="tab active" id="tabMeasured">📏 Mesuré (5 min)</button>
+    <button class="tab" id="tabWeek">🗓️ Semaine type</button>
+  </div>
+
   <div class="card">
     <div class="row">
       <div class="stats">
         <span>Moyenne <b id="stAvg">–</b></span>
         <span>Max <b id="stMax">–</b></span>
-        <span>Mesures <b id="stN">–</b></span>
+        <span id="stNwrap">Mesures <b id="stN">–</b></span>
       </div>
       <div>
         <select id="daySel"></select>
+        <select id="weekdaySel" style="display:none"></select>
         <button id="refresh">↻</button>
       </div>
     </div>
     <canvas id="chart"></canvas>
     <div class="empty" id="empty" style="display:none">Pas encore de données pour ce jour.</div>
+    <div id="weekNote" style="display:none;color:var(--muted);font-size:.78rem;margin-top:10px">
+      Affluence <b>moyenne historique</b> par heure (calculée par la salle, en % de capacité, arrondie).
+      Tendance indicative — tes mesures précises s'accumulent dans l'onglet « Mesuré ».
+    </div>
   </div>
 
   <div class="foot">Source : API publique L'Orange Bleue · <span id="lastUpd"></span></div>
@@ -72,6 +85,13 @@
 const TZ = 'Europe/Paris';
 const OPEN_HOUR = 6, CLOSE_HOUR = 23; // fenêtre affichée
 let ROWS = []; // {t: Date, count, dayKey, minOfDay, hh:mm}
+let WEEK = null; // {updated, limits, days:{MONDAY:[...]}}
+let MODE = 'measured'; // 'measured' | 'week'
+
+const WEEKDAYS = [
+  ['MONDAY','Lundi'],['TUESDAY','Mardi'],['WEDNESDAY','Mercredi'],['THURSDAY','Jeudi'],
+  ['FRIDAY','Vendredi'],['SATURDAY','Samedi'],['SUNDAY','Dimanche']
+];
 
 const fmtDay = new Intl.DateTimeFormat('fr-CA', {timeZone:TZ, year:'numeric', month:'2-digit', day:'2-digit'});
 const fmtTime = new Intl.DateTimeFormat('fr-FR', {timeZone:TZ, hour:'2-digit', minute:'2-digit'});
@@ -95,9 +115,37 @@ async function load(){
     const {h,m} = partsInTZ(t);
     return { t, count:+c, dayKey:fmtDay.format(t), minOfDay:h*60+m, hhmm:fmtTime.format(t) };
   }).filter(r => Number.isFinite(r.count));
+
+  try { WEEK = await (await fetch('week.json?_=' + Date.now())).json(); } catch(e) { WEEK = null; }
+
   buildDaySelector();
+  buildWeekdaySelector();
   render();
   document.getElementById('lastUpd').textContent = 'MàJ ' + new Date().toLocaleTimeString('fr-FR');
+}
+
+function buildWeekdaySelector(){
+  const sel = document.getElementById('weekdaySel');
+  if(sel.options.length) return; // une seule fois
+  for(const [key,label] of WEEKDAYS){
+    const o = document.createElement('option'); o.value = key; o.textContent = label; sel.appendChild(o);
+  }
+  // défaut = jour actuel (heure de Paris)
+  const todayKey = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'][
+    new Date(new Date().toLocaleString('en-US',{timeZone:TZ})).getDay()
+  ];
+  sel.value = todayKey;
+}
+
+function setMode(m){
+  MODE = m;
+  document.getElementById('tabMeasured').classList.toggle('active', m==='measured');
+  document.getElementById('tabWeek').classList.toggle('active', m==='week');
+  document.getElementById('daySel').style.display = m==='measured' ? '' : 'none';
+  document.getElementById('weekdaySel').style.display = m==='week' ? '' : 'none';
+  document.getElementById('stNwrap').style.display = m==='measured' ? '' : 'none';
+  document.getElementById('weekNote').style.display = m==='week' ? '' : 'none';
+  render();
 }
 
 function buildDaySelector(){
@@ -117,14 +165,16 @@ function buildDaySelector(){
 }
 
 function render(){
-  const sel = document.getElementById('daySel');
-  const day = sel.value || (ROWS.length ? ROWS[ROWS.length-1].dayKey : null);
-  const pts = ROWS.filter(r => r.dayKey === day).sort((a,b)=>a.minOfDay-b.minOfDay);
-
-  // Live = dernière mesure globale
+  // Live = dernière mesure globale (affiché dans les deux modes)
   const last = ROWS[ROWS.length-1];
   document.getElementById('liveNum').textContent = last ? last.count : '–';
   document.getElementById('liveWhen').textContent = last ? ('En direct · ' + last.hhmm) : '—';
+
+  if(MODE === 'week'){ renderWeek(); return; }
+
+  const sel = document.getElementById('daySel');
+  const day = sel.value || (ROWS.length ? ROWS[ROWS.length-1].dayKey : null);
+  const pts = ROWS.filter(r => r.dayKey === day).sort((a,b)=>a.minOfDay-b.minOfDay);
 
   const empty = document.getElementById('empty');
   const canvas = document.getElementById('chart');
@@ -194,6 +244,68 @@ function drawChart(canvas, pts, maxCount){
   ctx.beginPath(); ctx.arc(sx(lastP.minOfDay), sy(lastP.count), 4, 0, 7); ctx.fill();
 }
 
+function renderWeek(){
+  const canvas = document.getElementById('chart');
+  const empty = document.getElementById('empty');
+  const sel = document.getElementById('weekdaySel');
+  const slots = WEEK && WEEK.days ? WEEK.days[sel.value] : null;
+
+  if(!slots || !slots.length){
+    empty.textContent = 'Semaine type indisponible.'; empty.style.display='block'; canvas.style.display='none';
+    ['stAvg','stMax'].forEach(id=>document.getElementById(id).textContent='–');
+    document.getElementById('peakNum').textContent='–'; document.getElementById('peakWhen').textContent='';
+    return;
+  }
+  empty.style.display='none'; canvas.style.display='block';
+
+  const pcts = slots.map(s=>s.percentage);
+  const max = Math.max(...pcts);
+  const avg = Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length);
+  const peak = slots[pcts.indexOf(max)];
+  document.getElementById('stAvg').textContent = avg + '%';
+  document.getElementById('stMax').textContent = max + '%';
+  document.getElementById('peakNum').textContent = max + '%';
+  document.getElementById('peakWhen').textContent = 'vers ' + peak.startTime.slice(0,5);
+
+  drawBars(canvas, slots);
+}
+
+function drawBars(canvas, slots){
+  const lim = (WEEK && WEEK.limits) || {utilizationIndicatorLowLimitPercentage:6, utilizationIndicatorNormalLimitPercentage:16};
+  const low = lim.utilizationIndicatorLowLimitPercentage, normal = lim.utilizationIndicatorNormalLimitPercentage;
+  const colorFor = p => p < low ? '#37c978' : (p < normal ? '#5385ed' : '#ff5a3c'); // faible / normal / forte
+
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth, H = 320;
+  canvas.width = W*dpr; canvas.height = H*dpr;
+  const ctx = canvas.getContext('2d'); ctx.scale(dpr,dpr); ctx.clearRect(0,0,W,H);
+
+  const padL=36, padR=12, padT=16, padB=26;
+  const x0=padL, x1=W-padR, y0=H-padB, y1=padT;
+  const yMax = Math.max(normal + 4, Math.ceil(Math.max(...slots.map(s=>s.percentage))*1.2));
+  const sy = p => y0 + (y1-y0)*(p/yMax);
+
+  ctx.strokeStyle='#2b2e5e'; ctx.fillStyle='#9aa0c7'; ctx.font='11px system-ui'; ctx.lineWidth=1;
+  const yStep = yMax<=12?3:(yMax<=30?5:10);
+  for(let v=0; v<=yMax; v+=yStep){ const y=sy(v); ctx.beginPath(); ctx.moveTo(x0,y); ctx.lineTo(x1,y); ctx.stroke(); ctx.fillText(v+'%',6,y+4); }
+
+  // repère seuil "forte"
+  ctx.strokeStyle='rgba(255,90,60,.35)'; ctx.setLineDash([4,4]); ctx.beginPath();
+  ctx.moveTo(x0,sy(normal)); ctx.lineTo(x1,sy(normal)); ctx.stroke(); ctx.setLineDash([]);
+
+  const n = slots.length, bw = (x1-x0)/n * 0.7, gap=(x1-x0)/n;
+  ctx.textAlign='center';
+  slots.forEach((s,i)=>{
+    const cx = x0 + gap*i + gap/2;
+    const h = y0 - sy(s.percentage);
+    ctx.fillStyle = colorFor(s.percentage);
+    ctx.fillRect(cx-bw/2, sy(s.percentage), bw, h);
+    const hh = +s.startTime.slice(0,2);
+    if(hh % 3 === 0){ ctx.fillStyle='#9aa0c7'; ctx.fillText(hh+'h', cx, H-8); }
+  });
+  ctx.textAlign='left';
+}
+
 function niceStep(max){
   if(max<=10) return 2;
   if(max<=25) return 5;
@@ -202,6 +314,9 @@ function niceStep(max){
 }
 
 document.getElementById('daySel').addEventListener('change', render);
+document.getElementById('weekdaySel').addEventListener('change', render);
+document.getElementById('tabMeasured').addEventListener('click', ()=>setMode('measured'));
+document.getElementById('tabWeek').addEventListener('click', ()=>setMode('week'));
 document.getElementById('refresh').addEventListener('click', load);
 load();
 setInterval(load, 60000); // rafraîchit toutes les minutes

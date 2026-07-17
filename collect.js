@@ -27,8 +27,20 @@ async function main() {
     fs.writeFileSync(DATA_FILE, 'timestamp_utc,count\n');
   }
   fs.appendFileSync(DATA_FILE, `${nowUtc},${count}\n`);
-
   console.log(`[${nowUtc}] ${count} visiteur(s) — ajouté à data.csv`);
+
+  // "Semaine type" historique + seuils (change lentement ; git ignore si identique)
+  try {
+    const [week, limits] = await Promise.all([
+      getJson(`${BASE}/studios/${STUDIO_ID}/utilization/v2/historic/week`),
+      getJson(`${BASE}/studios/${STUDIO_ID}/utilization/v2/indicator/limits`),
+    ]);
+    const out = { updated: nowUtc, limits: limits.value || limits, days: week.days };
+    fs.writeFileSync(path.join(__dirname, 'week.json'), JSON.stringify(out));
+    console.log('Semaine type mise à jour (week.json)');
+  } catch (e) {
+    console.warn('Semaine type non mise à jour:', e.message);
+  }
 }
 
 main().catch((err) => {
