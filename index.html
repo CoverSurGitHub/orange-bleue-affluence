@@ -40,6 +40,21 @@
   .legend .li{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;color:var(--muted);cursor:pointer;user-select:none}
   .legend .li.off{opacity:.35;text-decoration:line-through}
   .legend .sw{width:12px;height:12px;border-radius:3px;flex:0 0 auto}
+  .calpop{position:absolute;right:0;top:calc(100% + 6px);z-index:20;background:#141631;border:1px solid var(--line2);
+          border-radius:12px;padding:12px;width:260px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+  .cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .cal-head b{font-size:.9rem;text-transform:capitalize}
+  .cal-nav{background:none;border:0;color:var(--muted);font-size:1.1rem;padding:2px 8px;cursor:pointer;border-radius:6px}
+  .cal-nav:hover{background:var(--line2);color:var(--text)}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;text-align:center}
+  .cal-dow{color:var(--muted);font-size:.7rem;padding:2px 0}
+  .cal-day{position:relative;padding:6px 0;border-radius:8px;font-size:.82rem;cursor:pointer;color:var(--text);background:transparent;border:1px solid transparent}
+  .cal-day.empty{visibility:hidden;cursor:default}
+  .cal-day.nodata{color:#4b4f78;cursor:default}
+  .cal-day.hasdata:hover{background:var(--line2)}
+  .cal-day.selected{background:var(--line);color:#fff;font-weight:700}
+  .cal-day.today{border-color:var(--accent)}
+  .cal-day .dot2{position:absolute;bottom:2px;left:50%;transform:translateX(-50%);width:4px;height:4px;border-radius:50%;background:var(--accent)}
   .empty{color:var(--muted);text-align:center;padding:40px 0}
   a{color:var(--line)}
   .foot{color:var(--muted);font-size:.75rem;text-align:center;margin-top:24px}
@@ -80,7 +95,10 @@
           <button class="seg-btn active" id="granHours">Heures</button>
           <button class="seg-btn" id="granMin">Minutes</button>
         </span>
-        <select id="daySel"></select>
+        <span class="calwrap" id="calWrap" style="position:relative;display:inline-block">
+          <button id="dayBtn">📅 <span id="dayBtnLabel">–</span></button>
+          <div id="dayCal" class="calpop" style="display:none"></div>
+        </span>
         <select id="cmpType" style="display:none" title="Type de comparaison">
           <option value="days">Jours d'une semaine</option>
           <option value="weekday">Même jour, plusieurs semaines</option>
@@ -183,7 +201,8 @@ function setMode(m){
   const measured = m==='measured', compare = m==='compare';
   document.getElementById('tabMeasured').classList.toggle('active', measured);
   document.getElementById('tabCompare').classList.toggle('active', compare);
-  document.getElementById('daySel').style.display = measured ? '' : 'none';
+  document.getElementById('calWrap').style.display = measured ? '' : 'none';
+  if(!measured) toggleCalendar(false);
   document.getElementById('granWrap').style.display = measured ? '' : 'none';
   document.getElementById('stNwrap').style.display = measured ? '' : 'none';
   document.getElementById('cmpType').style.display = compare ? '' : 'none';
@@ -212,31 +231,92 @@ function setGran(g){
 
 function hideTip(){ const t=document.getElementById('tip'); if(t) t.style.display='none'; }
 
-function setGran(g){
-  GRAN = g;
-  document.getElementById('granHours').classList.toggle('active', g==='hours');
-  document.getElementById('granMin').classList.toggle('active', g==='min');
-  hideTip();
-  render();
-}
-
-function hideTip(){ const t=document.getElementById('tip'); if(t) t.style.display='none'; }
+// ---- Calendrier (remplace le menu déroulant de jour) ----
+let SELECTED_DAY = null;   // 'YYYY-MM-DD' (clé locale Paris)
+let CAL_VIEW = null;       // {y, m} mois affiché dans le popup
 
 function buildDaySelector(){
-  const sel = document.getElementById('daySel');
-  const days = [...new Set(ROWS.map(r=>r.dayKey))].sort().reverse();
-  const prev = sel.value;
-  sel.innerHTML = '';
-  for(const d of days){
-    const o = document.createElement('option');
-    o.value = d;
-    // libellé lisible
-    const sample = ROWS.find(r=>r.dayKey===d);
-    o.textContent = sample ? fmtDayLabel.format(sample.t) : d;
-    sel.appendChild(o);
-  }
-  if(days.includes(prev)) sel.value = prev;
+  const days = [...new Set(ROWS.map(r=>r.dayKey))].sort();
+  if(!days.length) return;
+  if(!SELECTED_DAY || !days.includes(SELECTED_DAY)) SELECTED_DAY = days[days.length-1];
+  const [y,m] = SELECTED_DAY.split('-').map(Number);
+  if(!CAL_VIEW) CAL_VIEW = {y, m};
+  updateDayBtnLabel();
 }
+
+function updateDayBtnLabel(){
+  const sample = ROWS.find(r=>r.dayKey===SELECTED_DAY);
+  document.getElementById('dayBtnLabel').textContent = sample ? fmtDayLabel.format(sample.t) : (SELECTED_DAY || '–');
+}
+
+function todayKeyTZ(){
+  const p = {};
+  for(const {type,value} of new Intl.DateTimeFormat('en-CA',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date())){
+    p[type]=value;
+  }
+  return `${p.year}-${p.month}-${p.day}`;
+}
+
+function toggleCalendar(open){
+  const pop = document.getElementById('dayCal');
+  const willOpen = open!=null ? open : (pop.style.display==='none');
+  pop.style.display = willOpen ? 'block' : 'none';
+  if(willOpen){
+    const [y,m] = SELECTED_DAY.split('-').map(Number);
+    CAL_VIEW = {y, m};
+    renderCalendar();
+  }
+}
+
+function renderCalendar(){
+  const pop = document.getElementById('dayCal');
+  const {y, m} = CAL_VIEW; // m = 1..12
+  const dataDays = new Set(ROWS.map(r=>r.dayKey));
+  const today = todayKeyTZ();
+  const monthLabel = new Intl.DateTimeFormat('fr-FR',{month:'long', year:'numeric'}).format(new Date(y, m-1, 1));
+
+  const firstDow = (new Date(y, m-1, 1).getDay()+6)%7; // 0=lundi
+  const daysInMonth = new Date(y, m, 0).getDate();
+
+  let cells = '';
+  for(let i=0;i<firstDow;i++) cells += '<div class="cal-day empty"></div>';
+  for(let d=1; d<=daysInMonth; d++){
+    const key = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const has = dataDays.has(key);
+    const cls = ['cal-day'];
+    if(!has) cls.push('nodata'); else cls.push('hasdata');
+    if(key===SELECTED_DAY) cls.push('selected');
+    if(key===today) cls.push('today');
+    cells += `<div class="${cls.join(' ')}" data-day="${has?key:''}">${d}${has&&key!==SELECTED_DAY?'<span class="dot2"></span>':''}</div>`;
+  }
+
+  pop.innerHTML = `
+    <div class="cal-head">
+      <button class="cal-nav" id="calPrev" type="button">‹</button>
+      <b>${monthLabel}</b>
+      <button class="cal-nav" id="calNext" type="button">›</button>
+    </div>
+    <div class="cal-grid">
+      ${['L','M','M','J','V','S','D'].map(d=>`<div class="cal-dow">${d}</div>`).join('')}
+      ${cells}
+    </div>`;
+
+  pop.querySelector('#calPrev').addEventListener('click', ()=>{ CAL_VIEW.m--; if(CAL_VIEW.m<1){CAL_VIEW.m=12;CAL_VIEW.y--;} renderCalendar(); });
+  pop.querySelector('#calNext').addEventListener('click', ()=>{ CAL_VIEW.m++; if(CAL_VIEW.m>12){CAL_VIEW.m=1;CAL_VIEW.y++;} renderCalendar(); });
+  pop.querySelectorAll('.cal-day.hasdata').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      SELECTED_DAY = el.dataset.day;
+      updateDayBtnLabel();
+      toggleCalendar(false);
+      render();
+    });
+  });
+}
+
+document.addEventListener('click', e=>{
+  const wrap = document.getElementById('calWrap');
+  if(wrap && !wrap.contains(e.target)) toggleCalendar(false);
+});
 
 function render(){
   // Live = dernière mesure globale (affiché dans les deux modes)
@@ -247,8 +327,7 @@ function render(){
   if(MODE === 'compare'){ renderCompare(); return; }
 
   document.getElementById('legend').style.display = 'none';
-  const sel = document.getElementById('daySel');
-  const day = sel.value || (ROWS.length ? ROWS[ROWS.length-1].dayKey : null);
+  const day = SELECTED_DAY || (ROWS.length ? ROWS[ROWS.length-1].dayKey : null);
   const pts = ROWS.filter(r => r.dayKey === day).sort((a,b)=>a.minOfDay-b.minOfDay);
 
   const empty = document.getElementById('empty');
@@ -475,7 +554,7 @@ function niceStep(max){
   return 20;
 }
 
-document.getElementById('daySel').addEventListener('change', render);
+document.getElementById('dayBtn').addEventListener('click', e=>{ e.stopPropagation(); toggleCalendar(); });
 document.getElementById('cmpType').addEventListener('change', e=>setCmp(e.target.value));
 document.getElementById('weekSel').addEventListener('change', render);
 document.getElementById('cmpWeekdaySel').addEventListener('change', render);
