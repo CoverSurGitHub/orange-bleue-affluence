@@ -36,6 +36,10 @@
   .tip{position:absolute;pointer-events:none;background:#0b0c22;border:1px solid var(--line);border-radius:8px;
        padding:6px 9px;font-size:.8rem;white-space:nowrap;transform:translate(-50%,-115%);z-index:5;box-shadow:0 4px 14px rgba(0,0,0,.5)}
   .tip b{color:var(--accent);font-size:.95rem}
+  .legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:12px}
+  .legend .li{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;color:var(--muted);cursor:pointer;user-select:none}
+  .legend .li.off{opacity:.35;text-decoration:line-through}
+  .legend .sw{width:12px;height:12px;border-radius:3px;flex:0 0 auto}
   .empty{color:var(--muted);text-align:center;padding:40px 0}
   a{color:var(--line)}
   .foot{color:var(--muted);font-size:.75rem;text-align:center;margin-top:24px}
@@ -44,7 +48,7 @@
 <body>
 <div class="wrap">
   <h1>🏋️ Affluence — L'Orange Bleue Orgeval</h1>
-  <div class="sub">Capté toutes les 5 min · l'appli ne montre que l'instant présent, ici tu vois toute la journée.</div>
+  <div class="sub">Capté toutes les 10 min · l'appli ne montre que l'instant présent, ici tu vois toute la journée et tu compares les jours.</div>
 
   <div class="live">
     <div>
@@ -60,8 +64,8 @@
   </div>
 
   <div class="tabs">
-    <button class="tab active" id="tabMeasured">📏 Mesuré (5 min)</button>
-    <button class="tab" id="tabWeek">🗓️ Semaine type</button>
+    <button class="tab active" id="tabMeasured">📏 Mesuré</button>
+    <button class="tab" id="tabCompare">🔀 Comparer</button>
   </div>
 
   <div class="card">
@@ -77,7 +81,13 @@
           <button class="seg-btn" id="granMin">Minutes</button>
         </span>
         <select id="daySel"></select>
-        <select id="weekdaySel" style="display:none"></select>
+        <select id="cmpType" style="display:none" title="Type de comparaison">
+          <option value="days">Jours d'une semaine</option>
+          <option value="weekday">Même jour, plusieurs semaines</option>
+          <option value="weeks">Semaines entières</option>
+        </select>
+        <select id="weekSel" style="display:none"></select>
+        <select id="cmpWeekdaySel" style="display:none"></select>
         <button id="refresh">↻</button>
       </div>
     </div>
@@ -86,9 +96,9 @@
       <div id="tip" class="tip" style="display:none"></div>
     </div>
     <div class="empty" id="empty" style="display:none">Pas encore de données pour ce jour.</div>
-    <div id="weekNote" style="display:none;color:var(--muted);font-size:.78rem;margin-top:10px">
-      Affluence <b>moyenne historique</b> par heure (calculée par la salle, en % de capacité, arrondie).
-      Tendance indicative — tes mesures précises s'accumulent dans l'onglet « Mesuré ».
+    <div id="legend" class="legend" style="display:none"></div>
+    <div id="cmpNote" style="display:none;color:var(--muted);font-size:.78rem;margin-top:8px">
+      Comparaison construite sur <b>tes mesures réelles</b>. Elle s'enrichit à mesure que les jours et semaines s'accumulent.
     </div>
   </div>
 
@@ -98,17 +108,29 @@
 <script>
 const TZ = 'Europe/Paris';
 const OPEN_HOUR = 6, CLOSE_HOUR = 23; // fenêtre affichée
-let ROWS = []; // {t: Date, count, dayKey, minOfDay, hh:mm}
-let WEEK = null; // {updated, limits, days:{MONDAY:[...]}}
-let MODE = 'measured'; // 'measured' | 'week'
+let ROWS = []; // {t, count, dayKey, minOfDay, hhmm, wd(0=lun..6=dim), weekKey}
+let MODE = 'measured'; // 'measured' | 'compare'
 let GRAN = 'hours';    // 'hours' | 'min' — granularité de l'axe temps (onglet Mesuré)
-let HIT = [];          // points cliquables {x,y,count,hhmm} en px CSS relatifs au canvas
+let CMP = 'days';      // 'days' | 'weekday' | 'weeks'
+let HIT = [];          // points cliquables {x,y,count,hhmm,serie} en px CSS relatifs au canvas
+let HIDDEN = new Set();// séries masquées via la légende
 const PX_PER_MIN = 5;  // largeur en mode Minutes (scroll horizontal)
 
-const WEEKDAYS = [
-  ['MONDAY','Lundi'],['TUESDAY','Mardi'],['WEDNESDAY','Mercredi'],['THURSDAY','Jeudi'],
-  ['FRIDAY','Vendredi'],['SATURDAY','Samedi'],['SUNDAY','Dimanche']
-];
+const WD_SHORT = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+const WD_LONG  = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche'];
+// palette distincte pour les courbes superposées
+const PALETTE = ['#5385ed','#ff7a1a','#37c978','#e34cc0','#ffd23f','#2ec5c5','#f2545b','#9b7bff','#a0a7c9','#7ad151'];
+
+function wdFromDayKey(dk){ const [y,m,d]=dk.split('-').map(Number); return (new Date(Date.UTC(y,m-1,d)).getUTCDay()+6)%7; }
+function isoWeek(dk){
+  const [y,m,d]=dk.split('-').map(Number);
+  const dt=new Date(Date.UTC(y,m-1,d));
+  const day=(dt.getUTCDay()+6)%7; dt.setUTCDate(dt.getUTCDate()-day+3);      // jeudi de la semaine
+  const firstThu=new Date(Date.UTC(dt.getUTCFullYear(),0,4));
+  const fd=(firstThu.getUTCDay()+6)%7; firstThu.setUTCDate(firstThu.getUTCDate()-fd+3);
+  const w=1+Math.round((dt-firstThu)/(7*864e5));
+  return dt.getUTCFullYear()+'-S'+String(w).padStart(2,'0');
+}
 
 const fmtDay = new Intl.DateTimeFormat('fr-CA', {timeZone:TZ, year:'numeric', month:'2-digit', day:'2-digit'});
 const fmtTime = new Intl.DateTimeFormat('fr-FR', {timeZone:TZ, hour:'2-digit', minute:'2-digit'});
@@ -130,42 +152,65 @@ async function load(){
     const [ts, c] = l.split(',');
     const t = new Date(ts);
     const {h,m} = partsInTZ(t);
-    return { t, count:+c, dayKey:fmtDay.format(t), minOfDay:h*60+m, hhmm:fmtTime.format(t) };
+    const dayKey = fmtDay.format(t);
+    return { t, count:+c, dayKey, minOfDay:h*60+m, hhmm:fmtTime.format(t), wd:wdFromDayKey(dayKey), weekKey:isoWeek(dayKey) };
   }).filter(r => Number.isFinite(r.count));
 
-  try { WEEK = await (await fetch('week.json?_=' + Date.now())).json(); } catch(e) { WEEK = null; }
-
   buildDaySelector();
-  buildWeekdaySelector();
+  buildCompareSelectors();
   render();
   document.getElementById('lastUpd').textContent = 'MàJ ' + new Date().toLocaleTimeString('fr-FR');
 }
 
-function buildWeekdaySelector(){
-  const sel = document.getElementById('weekdaySel');
-  if(sel.options.length) return; // une seule fois
-  for(const [key,label] of WEEKDAYS){
-    const o = document.createElement('option'); o.value = key; o.textContent = label; sel.appendChild(o);
-  }
-  // défaut = jour actuel (heure de Paris)
-  const todayKey = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'][
-    new Date(new Date().toLocaleString('en-US',{timeZone:TZ})).getDay()
-  ];
-  sel.value = todayKey;
+function buildCompareSelectors(){
+  // Semaines présentes (pour "Jours d'une semaine")
+  const weeks = [...new Set(ROWS.map(r=>r.weekKey))].sort().reverse();
+  const wSel = document.getElementById('weekSel'); const wPrev = wSel.value;
+  wSel.innerHTML='';
+  for(const wk of weeks){ const o=document.createElement('option'); o.value=wk; o.textContent='Semaine '+wk.split('-S')[1]+' ('+wk.split('-')[0]+')'; wSel.appendChild(o); }
+  if(weeks.includes(wPrev)) wSel.value=wPrev;
+
+  // Jours de semaine présents (pour "Même jour, plusieurs semaines")
+  const wds = [...new Set(ROWS.map(r=>r.wd))].sort((a,b)=>a-b);
+  const dSel = document.getElementById('cmpWeekdaySel'); const dPrev = dSel.value;
+  dSel.innerHTML='';
+  for(const wd of wds){ const o=document.createElement('option'); o.value=wd; o.textContent=WD_LONG[wd]; dSel.appendChild(o); }
+  if([...dSel.options].some(o=>o.value===dPrev)) dSel.value=dPrev;
 }
 
 function setMode(m){
   MODE = m;
-  document.getElementById('tabMeasured').classList.toggle('active', m==='measured');
-  document.getElementById('tabWeek').classList.toggle('active', m==='week');
-  document.getElementById('daySel').style.display = m==='measured' ? '' : 'none';
-  document.getElementById('weekdaySel').style.display = m==='week' ? '' : 'none';
-  document.getElementById('stNwrap').style.display = m==='measured' ? '' : 'none';
-  document.getElementById('weekNote').style.display = m==='week' ? '' : 'none';
-  document.getElementById('granWrap').style.display = m==='measured' ? '' : 'none';
+  const measured = m==='measured', compare = m==='compare';
+  document.getElementById('tabMeasured').classList.toggle('active', measured);
+  document.getElementById('tabCompare').classList.toggle('active', compare);
+  document.getElementById('daySel').style.display = measured ? '' : 'none';
+  document.getElementById('granWrap').style.display = measured ? '' : 'none';
+  document.getElementById('stNwrap').style.display = measured ? '' : 'none';
+  document.getElementById('cmpType').style.display = compare ? '' : 'none';
+  document.getElementById('cmpNote').style.display = compare ? '' : 'none';
+  hideTip(); HIDDEN.clear();
+  updateCmpSelectors();
+  render();
+}
+
+// Affiche le bon sélecteur de contexte selon le type de comparaison
+function updateCmpSelectors(){
+  const compare = MODE==='compare';
+  document.getElementById('weekSel').style.display       = (compare && CMP==='days')    ? '' : 'none';
+  document.getElementById('cmpWeekdaySel').style.display = (compare && CMP==='weekday') ? '' : 'none';
+}
+
+function setCmp(type){ CMP = type; HIDDEN.clear(); hideTip(); updateCmpSelectors(); render(); }
+
+function setGran(g){
+  GRAN = g;
+  document.getElementById('granHours').classList.toggle('active', g==='hours');
+  document.getElementById('granMin').classList.toggle('active', g==='min');
   hideTip();
   render();
 }
+
+function hideTip(){ const t=document.getElementById('tip'); if(t) t.style.display='none'; }
 
 function setGran(g){
   GRAN = g;
@@ -199,8 +244,9 @@ function render(){
   document.getElementById('liveNum').textContent = last ? last.count : '–';
   document.getElementById('liveWhen').textContent = last ? ('En direct · ' + last.hhmm) : '—';
 
-  if(MODE === 'week'){ renderWeek(); return; }
+  if(MODE === 'compare'){ renderCompare(); return; }
 
+  document.getElementById('legend').style.display = 'none';
   const sel = document.getElementById('daySel');
   const day = sel.value || (ROWS.length ? ROWS[ROWS.length-1].dayKey : null);
   const pts = ROWS.filter(r => r.dayKey === day).sort((a,b)=>a.minOfDay-b.minOfDay);
@@ -296,37 +342,81 @@ function drawChart(canvas, pts, maxCount){
   });
 }
 
-function renderWeek(){
-  const canvas = document.getElementById('chart');
+// ---- Onglet Comparer : superpose plusieurs courbes issues de tes vraies mesures ----
+function renderCompare(){
   const empty = document.getElementById('empty');
-  const sel = document.getElementById('weekdaySel');
-  const slots = WEEK && WEEK.days ? WEEK.days[sel.value] : null;
+  const canvas = document.getElementById('chart');
+  const legend = document.getElementById('legend');
 
-  if(!slots || !slots.length){
-    empty.textContent = 'Semaine type indisponible.'; empty.style.display='block'; canvas.style.display='none';
-    ['stAvg','stMax'].forEach(id=>document.getElementById(id).textContent='–');
-    document.getElementById('peakNum').textContent='–'; document.getElementById('peakWhen').textContent='';
+  let series, xMin, xMax, xTicks, seps=[];
+  if(CMP === 'weeks'){
+    // Semaines entières : axe Lun→Dim, une courbe par semaine
+    xMin = OPEN_HOUR*60; xMax = 6*1440 + CLOSE_HOUR*60;
+    xTicks = WD_SHORT.map((lab,i)=>({x:i*1440 + (OPEN_HOUR+ (CLOSE_HOUR-OPEN_HOUR)/2)*60, label:lab}));
+    for(let i=1;i<7;i++) seps.push(i*1440);
+    const weeks = [...new Set(ROWS.map(r=>r.weekKey))].sort();
+    series = weeks.map((wk,i)=>({
+      label:'Sem. '+wk.split('-S')[1], color:PALETTE[i%PALETTE.length],
+      pts: ROWS.filter(r=>r.weekKey===wk).sort((a,b)=> (a.wd-b.wd)||(a.minOfDay-b.minOfDay))
+              .map(r=>({x:r.wd*1440+r.minOfDay, val:r.count, hhmm:WD_SHORT[r.wd]+' '+r.hhmm}))
+    }));
+  } else if(CMP === 'weekday'){
+    // Même jour de semaine, plusieurs semaines
+    xMin = OPEN_HOUR*60; xMax = CLOSE_HOUR*60;
+    xTicks = xHourTicks(xMin,xMax,3);
+    const wd = +document.getElementById('cmpWeekdaySel').value;
+    const rows = ROWS.filter(r=>r.wd===wd);
+    const weeks = [...new Set(rows.map(r=>r.weekKey))].sort();
+    series = weeks.map((wk,i)=>({
+      label:'Sem. '+wk.split('-S')[1], color:PALETTE[i%PALETTE.length],
+      pts: rows.filter(r=>r.weekKey===wk).sort((a,b)=>a.minOfDay-b.minOfDay)
+              .map(r=>({x:r.minOfDay, val:r.count, hhmm:r.hhmm}))
+    }));
+  } else {
+    // Jours d'une semaine : 7 courbes (lun→dim) de la semaine choisie
+    xMin = OPEN_HOUR*60; xMax = CLOSE_HOUR*60;
+    xTicks = xHourTicks(xMin,xMax,3);
+    const wk = document.getElementById('weekSel').value;
+    const rows = ROWS.filter(r=>r.weekKey===wk);
+    const wds = [...new Set(rows.map(r=>r.wd))].sort((a,b)=>a-b);
+    series = wds.map(wd=>({
+      label:WD_SHORT[wd], color:PALETTE[wd],
+      pts: rows.filter(r=>r.wd===wd).sort((a,b)=>a.minOfDay-b.minOfDay)
+              .map(r=>({x:r.minOfDay, val:r.count, hhmm:r.hhmm}))
+    }));
+  }
+
+  series = series.filter(s=>s.pts.length);
+  if(!series.length){
+    empty.textContent = 'Pas encore assez de données pour cette comparaison.'; empty.style.display='block';
+    canvas.style.display='none'; legend.style.display='none';
+    ['stAvg','stMax','peakNum'].forEach(id=>document.getElementById(id).textContent='–');
+    document.getElementById('peakWhen').textContent='';
     return;
   }
   empty.style.display='none'; canvas.style.display='block';
 
-  const pcts = slots.map(s=>s.percentage);
-  const max = Math.max(...pcts);
-  const avg = Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length);
-  const peak = slots[pcts.indexOf(max)];
-  document.getElementById('stAvg').textContent = avg + '%';
-  document.getElementById('stMax').textContent = max + '%';
-  document.getElementById('peakNum').textContent = max + '%';
-  document.getElementById('peakWhen').textContent = 'vers ' + peak.startTime.slice(0,5);
+  // stats globales sur les séries visibles
+  const visible = series.filter(s=>!HIDDEN.has(s.label));
+  const allVals = visible.flatMap(s=>s.pts.map(p=>p.val));
+  const max = allVals.length?Math.max(...allVals):0;
+  const avg = allVals.length?Math.round(allVals.reduce((a,b)=>a+b,0)/allVals.length):0;
+  document.getElementById('stAvg').textContent = avg;
+  document.getElementById('stMax').textContent = max;
+  document.getElementById('peakNum').textContent = max;
+  document.getElementById('peakWhen').textContent = visible.length+' courbe'+(visible.length>1?'s':'');
 
-  drawBars(canvas, slots);
+  drawMulti(canvas, series, xMin, xMax, xTicks, seps);
+  renderLegend(series);
 }
 
-function drawBars(canvas, slots){
-  const lim = (WEEK && WEEK.limits) || {utilizationIndicatorLowLimitPercentage:6, utilizationIndicatorNormalLimitPercentage:16};
-  const low = lim.utilizationIndicatorLowLimitPercentage, normal = lim.utilizationIndicatorNormalLimitPercentage;
-  const colorFor = p => p < low ? '#37c978' : (p < normal ? '#5385ed' : '#ff5a3c'); // faible / normal / forte
+function xHourTicks(xMin,xMax,stepH){
+  const t=[]; const step=stepH*60; const start=Math.ceil(xMin/step)*step;
+  for(let m=start;m<=xMax;m+=step) t.push({x:m, label:fmtHM(m)});
+  return t;
+}
 
+function drawMulti(canvas, series, xMin, xMax, xTicks, seps){
   HIT = []; hideTip();
   canvas.style.width = '100%';
   const dpr = window.devicePixelRatio || 1;
@@ -334,30 +424,48 @@ function drawBars(canvas, slots){
   canvas.width = W*dpr; canvas.height = H*dpr;
   const ctx = canvas.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
 
-  const padL=36, padR=12, padT=16, padB=26;
+  const padL=32, padR=12, padT=16, padB=26;
   const x0=padL, x1=W-padR, y0=H-padB, y1=padT;
-  const yMax = Math.max(normal + 4, Math.ceil(Math.max(...slots.map(s=>s.percentage))*1.2));
-  const sy = p => y0 + (y1-y0)*(p/yMax);
+  const visible = series.filter(s=>!HIDDEN.has(s.label));
+  const maxVal = Math.max(5, ...visible.flatMap(s=>s.pts.map(p=>p.val)));
+  const yMax = Math.ceil(maxVal*1.15);
+  const sx = x => x0 + (x1-x0)*(x-xMin)/(xMax-xMin);
+  const sy = v => y0 + (y1-y0)*(v/yMax);
 
+  // grille Y
   ctx.strokeStyle='#2b2e5e'; ctx.fillStyle='#9aa0c7'; ctx.font='11px system-ui'; ctx.lineWidth=1;
-  const yStep = yMax<=12?3:(yMax<=30?5:10);
-  for(let v=0; v<=yMax; v+=yStep){ const y=sy(v); ctx.beginPath(); ctx.moveTo(x0,y); ctx.lineTo(x1,y); ctx.stroke(); ctx.fillText(v+'%',6,y+4); }
-
-  // repère seuil "forte"
-  ctx.strokeStyle='rgba(255,90,60,.35)'; ctx.setLineDash([4,4]); ctx.beginPath();
-  ctx.moveTo(x0,sy(normal)); ctx.lineTo(x1,sy(normal)); ctx.stroke(); ctx.setLineDash([]);
-
-  const n = slots.length, bw = (x1-x0)/n * 0.7, gap=(x1-x0)/n;
-  ctx.textAlign='center';
-  slots.forEach((s,i)=>{
-    const cx = x0 + gap*i + gap/2;
-    const h = y0 - sy(s.percentage);
-    ctx.fillStyle = colorFor(s.percentage);
-    ctx.fillRect(cx-bw/2, sy(s.percentage), bw, h);
-    const hh = +s.startTime.slice(0,2);
-    if(hh % 3 === 0){ ctx.fillStyle='#9aa0c7'; ctx.fillText(hh+'h', cx, H-8); }
-  });
+  const yStep=niceStep(yMax);
+  for(let v=0; v<=yMax; v+=yStep){ const y=sy(v); ctx.beginPath(); ctx.moveTo(x0,y); ctx.lineTo(x1,y); ctx.stroke(); ctx.fillText(String(v),6,y+4); }
+  // séparateurs de jours (mode semaines entières)
+  ctx.strokeStyle='#3a3e73';
+  for(const s of seps){ const x=sx(s); ctx.beginPath(); ctx.moveTo(x,y1); ctx.lineTo(x,y0); ctx.stroke(); }
+  // labels X
+  ctx.textAlign='center'; ctx.fillStyle='#9aa0c7';
+  for(const t of xTicks){ ctx.fillText(t.label, sx(t.x), H-8); }
   ctx.textAlign='left';
+
+  // courbes
+  for(const s of series){
+    if(HIDDEN.has(s.label)) continue;
+    ctx.beginPath();
+    s.pts.forEach((p,i)=>{ const X=sx(p.x),Y=sy(p.val); i?ctx.lineTo(X,Y):ctx.moveTo(X,Y); });
+    ctx.strokeStyle=s.color; ctx.lineWidth=2; ctx.stroke();
+    const rPt = s.pts.length>120 ? 1.5 : 2.4;
+    for(const p of s.pts){ const X=sx(p.x),Y=sy(p.val); ctx.fillStyle=s.color; ctx.beginPath(); ctx.arc(X,Y,rPt,0,7); ctx.fill();
+      HIT.push({x:X,y:Y,count:p.val,hhmm:p.hhmm,serie:s.label}); }
+  }
+}
+
+function renderLegend(series){
+  const el = document.getElementById('legend');
+  el.innerHTML=''; el.style.display='flex';
+  for(const s of series){
+    const li=document.createElement('span');
+    li.className='li'+(HIDDEN.has(s.label)?' off':'');
+    li.innerHTML='<span class="sw" style="background:'+s.color+'"></span>'+s.label;
+    li.addEventListener('click',()=>{ if(HIDDEN.has(s.label)) HIDDEN.delete(s.label); else HIDDEN.add(s.label); render(); });
+    el.appendChild(li);
+  }
 }
 
 function niceStep(max){
@@ -368,30 +476,38 @@ function niceStep(max){
 }
 
 document.getElementById('daySel').addEventListener('change', render);
-document.getElementById('weekdaySel').addEventListener('change', render);
+document.getElementById('cmpType').addEventListener('change', e=>setCmp(e.target.value));
+document.getElementById('weekSel').addEventListener('change', render);
+document.getElementById('cmpWeekdaySel').addEventListener('change', render);
 document.getElementById('tabMeasured').addEventListener('click', ()=>setMode('measured'));
-document.getElementById('tabWeek').addEventListener('click', ()=>setMode('week'));
+document.getElementById('tabCompare').addEventListener('click', ()=>setMode('compare'));
 document.getElementById('granHours').addEventListener('click', ()=>setGran('hours'));
 document.getElementById('granMin').addEventListener('click', ()=>setGran('min'));
 document.getElementById('refresh').addEventListener('click', load);
 
 // Bulle au survol / tap : affiche l'heure exacte et le nombre de visiteurs du point le plus proche
-function showTipAt(clientX){
-  if(MODE!=='measured' || !HIT.length){ hideTip(); return; }
+function showTipAt(clientX, clientY){
+  if(!HIT.length){ hideTip(); return; }
   const canvas = document.getElementById('chart');
-  const px = clientX - canvas.getBoundingClientRect().left;
+  const r = canvas.getBoundingClientRect();
+  const px = clientX - r.left, py = (clientY!=null) ? clientY - r.top : null;
   let best=null, bd=Infinity;
-  for(const h of HIT){ const d=Math.abs(h.x-px); if(d<bd){ bd=d; best=h; } }
+  for(const h of HIT){
+    // en mode Comparer, on tient compte de X et Y pour viser la bonne courbe
+    const d = (py!=null && MODE==='compare') ? Math.hypot(h.x-px, h.y-py) : Math.abs(h.x-px);
+    if(d<bd){ bd=d; best=h; }
+  }
   if(!best) return;
   const tip = document.getElementById('tip');
-  tip.innerHTML = best.hhmm + ' · <b>' + best.count + '</b> visiteur' + (best.count>1?'s':'');
+  const who = best.serie ? '<span style="opacity:.7">'+best.serie+'</span> · ' : '';
+  tip.innerHTML = who + best.hhmm + ' · <b>' + best.count + '</b> visiteur' + (best.count>1?'s':'');
   tip.style.left = best.x + 'px';
   tip.style.top  = best.y + 'px';
   tip.style.display = 'block';
 }
 const wrap = document.getElementById('chartwrap');
-wrap.addEventListener('pointermove', e => { if(e.pointerType==='mouse') showTipAt(e.clientX); });
-wrap.addEventListener('pointerdown', e => showTipAt(e.clientX)); // tap mobile
+wrap.addEventListener('pointermove', e => { if(e.pointerType==='mouse') showTipAt(e.clientX, e.clientY); });
+wrap.addEventListener('pointerdown', e => showTipAt(e.clientX, e.clientY)); // tap mobile
 wrap.addEventListener('pointerleave', e => { if(e.pointerType==='mouse') hideTip(); });
 
 load();
