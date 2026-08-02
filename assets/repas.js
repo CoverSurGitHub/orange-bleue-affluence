@@ -58,16 +58,63 @@ function recipeTotals(rec){
 
 /* ---- aliments comptés à l'unité (exception : les œufs) ----
    Poids comestibles moyens (œuf moyen sans coquille ~50 g, jaune ~17 g, blanc ~33 g). */
+/* Poids comestibles moyens indicatifs (fruit moyen, sans peau/noyau) —
+   modifiables au cas par cas en tapant des grammes (ex : « 160g »). */
+const UNIT_FRUITS = [
+  [/\bbanane/,               'banane','bananes','de bananes',110,'🍌'],
+  [/\bpomme\b/,              'pomme','pommes','de pommes',150,'🍎'],
+  [/\bpoire\b/,              'poire','poires','de poires',140,'🍐'],
+  [/\borange\b/,             'orange','oranges',"d'oranges",130,'🍊'],
+  [/clementine|mandarine/,   'clémentine','clémentines','de clémentines',50,'🍊'],
+  [/\bkiwi/,                 'kiwi','kiwis','de kiwis',75,'🥝'],
+  [/\bpeche\b/,              'pêche','pêches','de pêches',130,'🍑'],
+  [/nectarine|brugnon/,      'nectarine','nectarines','de nectarines',130,'🍑'],
+  [/\babricot/,              'abricot','abricots',"d'abricots",45,'🍑'],
+  [/\bprune\b/,              'prune','prunes','de prunes',30,'🍇'],
+  [/\bfraise/,               'fraise','fraises','de fraises',12,'🍓'],
+  [/\bcerise\b/,             'cerise','cerises','de cerises',8,'🍒'],
+  [/\btomate\b/,             'tomate','tomates','de tomates',120,'🍅'],
+  [/\bavocat/,               'avocat','avocats',"d'avocats",140,'🥑'],
+  [/\bdatte/,                'datte','dattes','de dattes',8,'🌴'],
+  [/\bfigue/,                'figue','figues','de figues',50,'🍇'],
+  [/\bmangue/,               'mangue','mangues','de mangues',200,'🥭'],
+];
+// produits dérivés à laisser en grammes/ml (jus, compotes, gâteaux, séchés…)
+const UNIT_EXCLUDE = /jus|boisson|nectar|sirop|compote|confiture|puree|tarte|gateau|cake|yaourt|sorbet|glace|sech|chips|farine|poudre|coulis|liqueur|eau.de.vie|\bvin\b|muffin|biscuit|pomme de terre|pommes de terre/;
+
 function unitInfo(nom){
-  if(!/(oeuf|œuf)/i.test(nom)) return null;
-  if(/jaune/i.test(nom)) return {one:"jaune d'œuf", many:"jaunes d'œuf", de:"de jaunes d'œuf", g:17};
-  if(/blanc/i.test(nom)) return {one:"blanc d'œuf", many:"blancs d'œuf", de:"de blancs d'œuf", g:33};
-  return {one:'œuf', many:'œufs', de:"d'œufs", g:50};
+  const n = ' ' + norm(nom) + ' ';
+  if(/(oeuf|œuf)/.test(n)){
+    if(/jaune/.test(n)) return {one:"jaune d'œuf", many:"jaunes d'œuf", de:"de jaunes d'œuf", g:17, emo:'🥚', defN:3};
+    if(/blanc/.test(n)) return {one:"blanc d'œuf", many:"blancs d'œuf", de:"de blancs d'œuf", g:33, emo:'🥚', defN:3};
+    return {one:'œuf', many:'œufs', de:"d'œufs", g:50, emo:'🥚', defN:3};
+  }
+  if(UNIT_EXCLUDE.test(n)) return null;
+  for(const [re,one,many,de,g,emo] of UNIT_FRUITS){
+    if(re.test(n)) return {one, many, de, g, emo, defN:1};
+  }
+  return null;
 }
-function askQty(nom, defUnits, defGrams){
+
+/* ---- liquides : saisie en ml, convertis en g via la densité ----
+   (la table CIQUAL est exprimée pour 100 g). Densités usuelles :
+   lait ~1,03 g/ml · huile ~0,92 · sirop ~1,32 · autres boissons ~1,00.
+   Exclusions : poudres et concentrés (solides ou densité atypique). */
+function liquidInfo(nom){
+  const n = ' ' + norm(nom) + ' ';
+  if(/poudre|concentre|lyophilis/.test(n)) return null;
+  const LIQ = /\blait\b|\bboisson|\bjus\b|\bjus,|soda|\bcola\b|\beau\b|\bcafe\b|\bthe\b|infusion|tisane|\bhuile\b|vinaigre|\bsirop\b|\bbiere\b|\bvin\b|\bcidre\b|smoothie|\bnectar\b|limonade|creme liquide|chicoree|cappuccino|chocolat chaud|yaourt a boire|milkshake|cocktail|champagne|\bkefir\b|\bsoupe\b|\bpotage\b|\bbouillon\b/;
+  if(!LIQ.test(n)) return null;
+  let d = 1.0;
+  if(/\bhuile\b/.test(n)) d = 0.92;
+  else if(/\bsirop\b/.test(n)) d = 1.32;
+  else if(/\blait\b|cappuccino|chocolat chaud|yaourt a boire|milkshake|\bkefir\b/.test(n)) d = 1.03;
+  return {density: d};
+}
+function askQty(nom, prev){
   const u = unitInfo(nom);
   if(u){
-    const v = prompt(`Nombre ${u.de} — ${nom}\n(1 ${u.one} ≈ ${u.g} g · ou tape des grammes, ex : 160g)`, defUnits ?? 3);
+    const v = prompt(`Nombre ${u.de} — ${nom}\n(1 ${u.one} ≈ ${u.g} g · ou tape des grammes, ex : 160g)`, (prev && prev.units) ?? u.defN);
     if(v===null) return null;
     const s = String(v).trim().replace(',','.');
     if(/g\s*$/i.test(s)){
@@ -77,18 +124,41 @@ function askQty(nom, defUnits, defGrams){
     }
     const n = parseFloat(s);
     if(!Number.isFinite(n)||n<=0||n>50){ alert('Nombre invalide.'); return null; }
-    return {qty:n*u.g, units:n, unitG:u.g, unitOne:u.one, unitMany:u.many, unitLabel:u.one};
+    return {qty:n*u.g, units:n, unitG:u.g, unitOne:u.one, unitMany:u.many, unitLabel:u.one, unitEmo:u.emo};
   }
-  const v = prompt(`Quantité en grammes de « ${nom} » :`, defGrams ?? 100);
+  const L = liquidInfo(nom);
+  if(L){
+    const v = prompt(`Quantité en ml — ${nom}\n(ou tape des grammes, ex : 100g)`, (prev && prev.ml) ?? 250);
+    if(v===null) return null;
+    const s = String(v).trim().replace(',','.');
+    if(/g\s*$/i.test(s)){
+      const g = parseFloat(s);
+      if(!Number.isFinite(g)||g<=0){ alert('Quantité invalide.'); return null; }
+      return {qty:g};
+    }
+    const ml = parseFloat(s);
+    if(!Number.isFinite(ml)||ml<=0){ alert('Quantité invalide.'); return null; }
+    return {qty: ml*L.density, ml, density:L.density};
+  }
+  const v = prompt(`Quantité en grammes de « ${nom} » :`, (prev && r0(prev.qty)) ?? 100);
   if(v===null) return null;
   const g = parseFloat(String(v).replace(',','.'));
   if(!Number.isFinite(g)||g<=0){ alert('Quantité invalide.'); return null; }
   return {qty:g};
 }
 function qtyChip(it){
-  if(!it.unitLabel) return `⚖ ${r0(it.qty)} g ✎`;
-  const lbl = it.units>1 ? (it.unitMany || it.unitLabel+'s') : (it.unitOne || it.unitLabel);
-  return `🥚 ${it.units} ${esc(lbl)} (${r0(it.qty)} g) ✎`;
+  if(it.unitLabel){
+    const lbl = it.units>1 ? (it.unitMany || it.unitLabel+'s') : (it.unitOne || it.unitLabel);
+    return `${it.unitEmo||'🥚'} ${it.units} ${esc(lbl)} (${r0(it.qty)} g) ✎`;
+  }
+  if(it.ml) return `🥛 ${r0(it.ml)} ml${r0(it.ml)!==r0(it.qty)?' ('+r0(it.qty)+' g)':''} ✎`;
+  return `⚖ ${r0(it.qty)} g ✎`;
+}
+/* texte court de quantité (extras du jour) */
+function qtyText(e){
+  if(e.unitLabel){ const lbl = e.units>1 ? (e.unitMany||e.unitLabel+'s') : (e.unitOne||e.unitLabel); return `${e.units} ${lbl}`; }
+  if(e.ml) return `${r0(e.ml)} ml`;
+  return `${r0(e.qty)} g`;
 }
 
 /* ---- journée : liste de ce qui a été mangé ---- */
@@ -160,7 +230,7 @@ function foodPicker(title, onPick){
     res.style.display='block';
     res.querySelectorAll('.fs-item').forEach(el=>el.addEventListener('click', ()=>{
       const f = list[+el.dataset.i];
-      const a = askQty(f.nom, null, f.defQty ? r0(f.defQty) : 100);
+      const a = askQty(f.nom, null);
       if(!a) return;
       onPick({id:uid(), nom:f.nom, kcal100:f.kcal100, prot100:f.prot100, ...a});
       close();
@@ -230,9 +300,11 @@ function editRecipe(id, presetCat){
     bg.querySelectorAll('[data-x]').forEach(b=>b.addEventListener('click', ()=>{ rec.items=rec.items.filter(i=>i.id!==b.dataset.x); draw(); }));
     bg.querySelectorAll('[data-q]').forEach(d=>d.addEventListener('click', ()=>{
       const it = rec.items.find(i=>i.id===d.dataset.q);
-      const a = askQty(it.nom, it.units, r0(it.qty));
+      const a = askQty(it.nom, it);
       if(!a) return;
-      it.qty=a.qty; it.units=a.units; it.unitG=a.unitG; it.unitOne=a.unitOne; it.unitMany=a.unitMany; it.unitLabel=a.unitLabel;
+      // remplace toutes les infos de quantité (unités / ml / grammes)
+      delete it.units; delete it.unitG; delete it.unitOne; delete it.unitMany; delete it.unitLabel; delete it.unitEmo; delete it.ml; delete it.density;
+      Object.assign(it, a);
       draw();
     }));
     bg.querySelector('#rcSave').addEventListener('click', ()=>{
@@ -306,7 +378,7 @@ function render(){
         ${extras.map(e=>`
           <div class="li-row">
             <div class="grow"><div class="name">${esc(e.nom)}</div>
-              <div class="sub">${e.count>1?'×'+e.count+' · ':''}${r0(e.qty)} g</div></div>
+              <div class="sub">${e.count>1?'×'+e.count+' · ':''}${esc(qtyText(e))}</div></div>
             <div class="val">${r0(e.kcal*e.count)} <small>kcal</small><br><span class="small" style="font-weight:400">${r1(e.prot*e.count)} g prot</span></div>
             <button class="li-x" data-delextra="${e.id}">✕</button>
           </div>`).join('')}
@@ -387,6 +459,7 @@ function render(){
     foodPicker('Extra — aliment ponctuel', item=>{
       j.eaten.push({id:item.id, type:'food', nom:item.nom, qty:item.qty,
         units:item.units, unitLabel:item.unitLabel, unitOne:item.unitOne, unitMany:item.unitMany,
+        unitEmo:item.unitEmo, ml:item.ml,
         kcal:item.kcal100*item.qty/100, prot:item.prot100*item.qty/100, count:1});
       touchDay(); render();
     });
