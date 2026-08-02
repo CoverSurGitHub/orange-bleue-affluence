@@ -313,6 +313,19 @@ function editRecipe(id, presetCat){
       if(!rec.cat) rec.cat = Store.data.mealCats[0].id;
       rec.updatedAt = nowIso();
       if(isNew) Store.data.recipes.push(rec);
+      // Le jour AFFICHÉ reflète immédiatement les nouvelles valeurs du plat ;
+      // les autres jours (historique) restent figés sur leurs valeurs d'époque.
+      const j = Store.data.journal[day];
+      if(j && Array.isArray(j.eaten)){
+        const t = recipeTotals(rec);
+        let touched = false;
+        for(const e of j.eaten){
+          if(e.type==='recipe' && e.recipeId===rec.id){
+            e.nom = rec.nom; e.kcal = t.kcal; e.prot = t.prot; touched = true;
+          }
+        }
+        if(touched) j.updatedAt = nowIso();
+      }
       Store.save(); close(); render();
     });
     const del = bg.querySelector('#rcDel');
