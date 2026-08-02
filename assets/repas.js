@@ -60,6 +60,46 @@ function recipeTotals(rec){
   return {kcal, prot, weight};
 }
 
+/* ---- aliments comptés à l'unité (exception : les œufs) ----
+   Poids comestibles moyens (œuf moyen sans coquille ~50 g, jaune ~17 g, blanc ~33 g).
+   L'utilisateur peut toujours forcer des grammes en tapant « 160g ». */
+function unitInfo(nom){
+  if(!/(oeuf|œuf)/i.test(nom)) return null;
+  if(/jaune/i.test(nom)) return {one:"jaune d'œuf", many:"jaunes d'œuf", de:"de jaunes d'œuf", g:17};
+  if(/blanc/i.test(nom)) return {one:"blanc d'œuf", many:"blancs d'œuf", de:"de blancs d'œuf", g:33};
+  return {one:'œuf', many:'œufs', de:"d'œufs", g:50};
+}
+
+/* Demande la quantité : en unités si l'aliment s'y prête, sinon en grammes.
+   Retourne {qty, units?, unitG?, unitLabel?} ou null si annulé. */
+function askQty(nom, defUnits, defGrams){
+  const u = unitInfo(nom);
+  if(u){
+    const v = prompt(`Nombre ${u.de} — ${nom}\n(1 ${u.one} ≈ ${u.g} g · ou tape des grammes, ex : 160g)`, defUnits ?? 3);
+    if(v===null) return null;
+    const s = String(v).trim().replace(',','.');
+    if(/g\s*$/i.test(s)){                                   // saisie forcée en grammes
+      const g = parseFloat(s);
+      if(!Number.isFinite(g)||g<=0){ alert('Quantité invalide.'); return null; }
+      return {qty:g};
+    }
+    const n = parseFloat(s);
+    if(!Number.isFinite(n)||n<=0||n>50){ alert('Nombre invalide.'); return null; }
+    return {qty:n*u.g, units:n, unitG:u.g, unitOne:u.one, unitMany:u.many, unitLabel:u.one};
+  }
+  const v = prompt(`Quantité en grammes de « ${nom} » :`, defGrams ?? 100);
+  if(v===null) return null;
+  const g = parseFloat(String(v).replace(',','.'));
+  if(!Number.isFinite(g)||g<=0){ alert('Quantité invalide.'); return null; }
+  return {qty:g};
+}
+
+function qtyChip(it){
+  if(!it.unitLabel) return `⚖ ${r0(it.qty)} g ✎`;
+  const lbl = it.units>1 ? (it.unitMany || it.unitLabel+'s') : (it.unitOne || it.unitLabel);
+  return `🥚 ${it.units} ${esc(lbl)} (${r0(it.qty)} g) ✎`;
+}
+
 /* ---- journal ---- */
 function ensureDay(k){
   if(!Store.data.journal[k]){
@@ -109,11 +149,9 @@ function foodPicker(title, onPick){
     res.style.display='block';
     res.querySelectorAll('.fs-item').forEach(el=>el.addEventListener('click', ()=>{
       const f = list[+el.dataset.i];
-      const v = prompt(`Quantité en grammes de « ${f.nom} » :`, f.defQty ? r0(f.defQty) : 100);
-      if(v===null) return;
-      const qty = parseFloat(String(v).replace(',','.'));
-      if(!Number.isFinite(qty) || qty<=0){ alert('Quantité invalide.'); return; }
-      onPick({id:uid(), nom:f.nom, kcal100:f.kcal100, prot100:f.prot100, qty});
+      const a = askQty(f.nom, null, f.defQty ? r0(f.defQty) : 100);
+      if(!a) return;
+      onPick({id:uid(), nom:f.nom, kcal100:f.kcal100, prot100:f.prot100, ...a});
       close();
     }));
   }
@@ -170,7 +208,7 @@ function renderJournal(){
           <div class="li-row">
             <div class="grow" data-qty="${c.id}:${it.id}" title="Modifier la quantité">
               <div class="name">${esc(it.nom)}</div>
-              <span class="chip">⚖ ${r0(it.qty)} g ✎</span>
+              <span class="chip">${qtyChip(it)}</span>
               <span class="sub"> · ${r0(it.kcal100)} kcal/100g</span>
             </div>
             <div class="val">${r0(kcalOf(it))} <small>kcal</small><br><span class="small" style="font-weight:400">${r1(protOf(it))} g prot</span></div>
@@ -202,11 +240,10 @@ function renderJournal(){
   el.querySelectorAll('[data-qty]').forEach(d=>d.addEventListener('click', ()=>{
     const [cid,iid] = d.dataset.qty.split(':');
     const it = j.cats.find(c=>c.id===cid).items.find(i=>i.id===iid);
-    const v = prompt(`Quantité en g de « ${it.nom} » :`, r0(it.qty));
-    if(v===null) return;
-    const qty = parseFloat(String(v).replace(',','.'));
-    if(!Number.isFinite(qty)||qty<=0){ alert('Quantité invalide.'); return; }
-    it.qty = qty; touchDay(); renderJournal();
+    const a = askQty(it.nom, it.units, r0(it.qty));
+    if(!a) return;
+    it.qty = a.qty; it.units = a.units; it.unitG = a.unitG; it.unitLabel = a.unitLabel;
+    touchDay(); renderJournal();
   }));
   el.querySelectorAll('[data-ren]').forEach(h=>h.addEventListener('click', ()=>{
     const cat = j.cats.find(c=>c.id===h.dataset.ren);
@@ -297,7 +334,7 @@ function editRecipe(id){
           ${rec.items.map(it=>`
             <div class="li-row">
               <div class="grow" data-q="${it.id}"><div class="name">${esc(it.nom)}</div>
-                <span class="chip">⚖ ${r0(it.qty)} g ✎</span></div>
+                <span class="chip">${qtyChip(it)}</span></div>
               <div class="val">${r0(kcalOf(it))} <small>kcal</small></div>
               <button class="li-x" data-x="${it.id}">✕</button>
             </div>`).join('')}
@@ -320,10 +357,10 @@ function editRecipe(id){
     bg.querySelectorAll('[data-x]').forEach(b=>b.addEventListener('click', ()=>{ rec.items=rec.items.filter(i=>i.id!==b.dataset.x); draw(); }));
     bg.querySelectorAll('[data-q]').forEach(d=>d.addEventListener('click', ()=>{
       const it = rec.items.find(i=>i.id===d.dataset.q);
-      const v = prompt(`Quantité en g de « ${it.nom} » :`, r0(it.qty));
-      if(v===null) return;
-      const qty = parseFloat(String(v).replace(',','.'));
-      if(Number.isFinite(qty)&&qty>0){ it.qty=qty; draw(); }
+      const a = askQty(it.nom, it.units, r0(it.qty));
+      if(!a) return;
+      it.qty=a.qty; it.units=a.units; it.unitG=a.unitG; it.unitLabel=a.unitLabel;
+      draw();
     }));
     bg.querySelector('#rcSave').addEventListener('click', ()=>{
       if(!rec.nom.trim()){ alert('Donne un nom à la recette.'); return; }
