@@ -117,6 +117,8 @@ canvas.chart{height:300px;display:block}
 .li-row .val{font-size:.85rem;font-weight:700;white-space:nowrap}
 .li-row .val small{color:var(--muted);font-weight:400}
 .li-x{background:none;border:0;color:var(--muted);font-size:1.1rem;cursor:pointer;min-width:40px;min-height:40px;border-radius:8px}
+.chip{display:inline-block;background:#0f1130;border:1px solid var(--line2);border-radius:8px;
+      padding:3px 8px;font-size:.75rem;color:var(--line);margin-top:3px}
 .li-x:active{background:var(--line2);color:var(--bad)}
 
 /* ===== Jauges ===== */

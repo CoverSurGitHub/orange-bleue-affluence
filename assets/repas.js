@@ -170,7 +170,8 @@ function renderJournal(){
           <div class="li-row">
             <div class="grow" data-qty="${c.id}:${it.id}" title="Modifier la quantité">
               <div class="name">${esc(it.nom)}</div>
-              <div class="sub">${r0(it.qty)} g · ${r0(it.kcal100)} kcal/100g</div>
+              <span class="chip">⚖ ${r0(it.qty)} g ✎</span>
+              <span class="sub"> · ${r0(it.kcal100)} kcal/100g</span>
             </div>
             <div class="val">${r0(kcalOf(it))} <small>kcal</small><br><span class="small" style="font-weight:400">${r1(protOf(it))} g prot</span></div>
             <button class="li-x" data-del="${c.id}:${it.id}">✕</button>
@@ -296,7 +297,7 @@ function editRecipe(id){
           ${rec.items.map(it=>`
             <div class="li-row">
               <div class="grow" data-q="${it.id}"><div class="name">${esc(it.nom)}</div>
-                <div class="sub">${r0(it.qty)} g</div></div>
+                <span class="chip">⚖ ${r0(it.qty)} g ✎</span></div>
               <div class="val">${r0(kcalOf(it))} <small>kcal</small></div>
               <button class="li-x" data-x="${it.id}">✕</button>
             </div>`).join('')}
