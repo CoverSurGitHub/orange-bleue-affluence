@@ -126,16 +126,16 @@ const Store = {
         updatedAt: nowIso(),
         weights: {},          // "YYYY-MM-DD" -> {kg, updatedAt}
         foods: [],            // aliments perso {id, nom, kcal, prot, updatedAt, deleted?}
-        recipes: [],          // {id, nom, items:[{ref, qty}], updatedAt, deleted?}
-        journal: {},          // "YYYY-MM-DD" -> {cats:[{id,nom,items:[...]}], updatedAt}
-        catTemplate: [
-          {id:'c1', nom:'Repas 1'}, {id:'c2', nom:'Repas 2'},
-          {id:'c3', nom:'Collation 1'}, {id:'c4', nom:'Collation 2'}
-        ],
+        recipes: [],          // plats {id, nom, cat, items:[{nom,kcal100,prot100,qty}], updatedAt, deleted?}
+        journal: {},          // "YYYY-MM-DD" -> {eaten:[{id,type,…,count}], updatedAt}
+        mealCats: [ {id:'mc1', nom:'Repas'}, {id:'mc2', nom:'Collations'} ],
+        mealCatsUpdatedAt: null,
         tdee: null,           // {sexe, age, taille, poidsManuel, activite, objectif, pctMG, updatedAt}
         settings: {}          // {objectifPoids}
       };
     }
+    // normalisation (anciens stores v1 sans mealCats)
+    if(!this.data.mealCats) this.data.mealCats = [{id:'mc1', nom:'Repas'}, {id:'mc2', nom:'Collations'}];
     return this.data;
   },
   save(){
@@ -205,8 +205,8 @@ const Sync = {
       out[coll] = Object.values(byId);
     }
     out.tdee = newer(out.tdee, remote.tdee);
-    if(remote.catTemplateUpdatedAt && (!out.catTemplateUpdatedAt || remote.catTemplateUpdatedAt > out.catTemplateUpdatedAt)){
-      out.catTemplate = remote.catTemplate; out.catTemplateUpdatedAt = remote.catTemplateUpdatedAt;
+    if(remote.mealCatsUpdatedAt && (!out.mealCatsUpdatedAt || remote.mealCatsUpdatedAt > out.mealCatsUpdatedAt)){
+      out.mealCats = remote.mealCats; out.mealCatsUpdatedAt = remote.mealCatsUpdatedAt;
     }
     out.settings = {...(remote.settings||{}), ...(out.settings||{})};
     return out;

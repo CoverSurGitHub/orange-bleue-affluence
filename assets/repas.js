@@ -1,14 +1,17 @@
-/* ===== Section Repas : aliments (CIQUAL) / recettes / journal ===== */
+/* ===== Section Repas : bibliothèque de plats + compteur du jour =====
+   Un seul écran : jauges d'objectif en haut, catégories (Repas/Collations…)
+   contenant des plats préparés. Un tap sur ➕ = je l'ai mangé (compteur ×N).
+   Les valeurs sont FIGÉES au moment du tap : modifier une recette ensuite
+   ne réécrit pas l'historique des jours passés.                            */
 'use strict';
 (function(){
 
 let cal = null;
-let day = null;             // jour affiché du journal
-let TAB = 'journal';        // journal | recettes
-let CIQUAL = null;          // {foods:[[nom,kcal,prot,glu,lip]...]} chargé à la demande
+let day = null;             // jour affiché
+let CIQUAL = null;
 let ciqualPromise = null;
 
-/* ---- utilitaires nutrition (aucun arrondi interne, arrondi à l'affichage) ---- */
+/* ---- utilitaires nutrition ---- */
 const kcalOf = it => it.kcal100 * it.qty / 100;
 const protOf = it => it.prot100 * it.qty / 100;
 const r0 = x => Math.round(x);
@@ -27,17 +30,11 @@ function loadCiqual(){
   return ciqualPromise;
 }
 
-/* ---- recherche unifiée : CIQUAL + aliments perso + recettes ---- */
 function searchFoods(q){
   const terms = norm(q).split(/\s+/).filter(Boolean);
   if(!terms.length) return [];
   const match = name => { const n=norm(name); return terms.every(t=>n.includes(t)); };
   const out = [];
-  for(const rec of Store.data.recipes){
-    if(rec.deleted || !match(rec.nom)) continue;
-    const tot = recipeTotals(rec);
-    if(tot.weight>0) out.push({type:'recette', nom:rec.nom, kcal100:tot.kcal/tot.weight*100, prot100:tot.prot/tot.weight*100, defQty:tot.weight});
-  }
   for(const f of Store.data.foods){
     if(f.deleted || !match(f.nom)) continue;
     out.push({type:'perso', nom:f.nom, kcal100:f.kcal, prot100:f.prot, defQty:100});
@@ -49,7 +46,6 @@ function searchFoods(q){
       if(out.length>60) break;
     }
   }
-  // pertinence simple : les noms les plus courts (plus génériques) d'abord
   out.sort((a,b)=>a.nom.length-b.nom.length);
   return out.slice(0,30);
 }
@@ -61,24 +57,20 @@ function recipeTotals(rec){
 }
 
 /* ---- aliments comptés à l'unité (exception : les œufs) ----
-   Poids comestibles moyens (œuf moyen sans coquille ~50 g, jaune ~17 g, blanc ~33 g).
-   L'utilisateur peut toujours forcer des grammes en tapant « 160g ». */
+   Poids comestibles moyens (œuf moyen sans coquille ~50 g, jaune ~17 g, blanc ~33 g). */
 function unitInfo(nom){
   if(!/(oeuf|œuf)/i.test(nom)) return null;
   if(/jaune/i.test(nom)) return {one:"jaune d'œuf", many:"jaunes d'œuf", de:"de jaunes d'œuf", g:17};
   if(/blanc/i.test(nom)) return {one:"blanc d'œuf", many:"blancs d'œuf", de:"de blancs d'œuf", g:33};
   return {one:'œuf', many:'œufs', de:"d'œufs", g:50};
 }
-
-/* Demande la quantité : en unités si l'aliment s'y prête, sinon en grammes.
-   Retourne {qty, units?, unitG?, unitLabel?} ou null si annulé. */
 function askQty(nom, defUnits, defGrams){
   const u = unitInfo(nom);
   if(u){
     const v = prompt(`Nombre ${u.de} — ${nom}\n(1 ${u.one} ≈ ${u.g} g · ou tape des grammes, ex : 160g)`, defUnits ?? 3);
     if(v===null) return null;
     const s = String(v).trim().replace(',','.');
-    if(/g\s*$/i.test(s)){                                   // saisie forcée en grammes
+    if(/g\s*$/i.test(s)){
       const g = parseFloat(s);
       if(!Number.isFinite(g)||g<=0){ alert('Quantité invalide.'); return null; }
       return {qty:g};
@@ -93,26 +85,45 @@ function askQty(nom, defUnits, defGrams){
   if(!Number.isFinite(g)||g<=0){ alert('Quantité invalide.'); return null; }
   return {qty:g};
 }
-
 function qtyChip(it){
   if(!it.unitLabel) return `⚖ ${r0(it.qty)} g ✎`;
   const lbl = it.units>1 ? (it.unitMany || it.unitLabel+'s') : (it.unitOne || it.unitLabel);
   return `🥚 ${it.units} ${esc(lbl)} (${r0(it.qty)} g) ✎`;
 }
 
-/* ---- journal ---- */
+/* ---- journée : liste de ce qui a été mangé ---- */
 function ensureDay(k){
-  if(!Store.data.journal[k]){
-    Store.data.journal[k] = {
-      cats: Store.data.catTemplate.map(c=>({id:uid(), nom:c.nom, items:[]})),
-      updatedAt: nowIso()
-    };
+  const j = Store.data.journal[k];
+  if(!j || !Array.isArray(j.eaten)){
+    Store.data.journal[k] = {eaten: [], updatedAt: nowIso()};
   }
   return Store.data.journal[k];
 }
 function touchDay(){ Store.data.journal[day].updatedAt = nowIso(); Store.save(); }
+function dayTotals(j){
+  let kcal=0, prot=0;
+  for(const e of j.eaten){ kcal += e.kcal * e.count; prot += e.prot * e.count; }
+  return {kcal, prot};
+}
+/* nb de fois où un plat a été mangé ce jour */
+function eatenCount(j, recipeId){
+  const e = j.eaten.find(x=>x.type==='recipe' && x.recipeId===recipeId);
+  return e ? e.count : 0;
+}
+function bumpRecipe(j, rec, delta){
+  let e = j.eaten.find(x=>x.type==='recipe' && x.recipeId===rec.id);
+  if(!e && delta>0){
+    const t = recipeTotals(rec);                       // snapshot au moment du tap
+    e = {id:uid(), type:'recipe', recipeId:rec.id, nom:rec.nom, kcal:t.kcal, prot:t.prot, count:0};
+    j.eaten.push(e);
+  }
+  if(!e) return;
+  e.count += delta;
+  if(e.count<=0) j.eaten = j.eaten.filter(x=>x!==e);
+  touchDay(); render();
+}
 
-/* ---- composant recherche + choix quantité (réutilisé journal & recettes) ---- */
+/* ---- recherche + quantité (pour ingrédients et extras) ---- */
 function foodPicker(title, onPick){
   const bg = document.createElement('div');
   bg.className = 'modal-bg';
@@ -135,16 +146,16 @@ function foodPicker(title, onPick){
   bg.querySelector('#fpCancel').addEventListener('click', close);
   const q = bg.querySelector('#fpQ'), res = bg.querySelector('#fpRes'), status = bg.querySelector('#fpStatus');
 
-  loadCiqual().then(c=>{ status.textContent = `Base CIQUAL 2020 (ANSES) : ${c.foods.length} aliments · + tes recettes et aliments perso`; runSearch(); })
-              .catch(()=>{ status.textContent = '⚠️ Base CIQUAL indisponible hors-ligne — recherche limitée à tes aliments perso et recettes.'; });
+  loadCiqual().then(c=>{ status.textContent = `Base CIQUAL 2020 (ANSES) : ${c.foods.length} aliments · + tes aliments perso`; runSearch(); })
+              .catch(()=>{ status.textContent = '⚠️ Base CIQUAL indisponible hors-ligne — recherche limitée à tes aliments perso.'; });
 
   function runSearch(){
     const list = searchFoods(q.value);
     if(!q.value.trim() || !list.length){ res.style.display='none'; return; }
     res.innerHTML = list.map((f,i)=>`
       <div class="fs-item" data-i="${i}">
-        <div>${f.type==='recette'?'📖 ':f.type==='perso'?'⭐ ':''}${esc(f.nom)}</div>
-        <div class="sub">${r0(f.kcal100)} kcal · ${r1(f.prot100)} g prot <span class="muted">/100 g${f.type==='recette'?' de recette':''}</span></div>
+        <div>${f.type==='perso'?'⭐ ':''}${esc(f.nom)}</div>
+        <div class="sub">${r0(f.kcal100)} kcal · ${r1(f.prot100)} g prot <span class="muted">/100 g</span></div>
       </div>`).join('');
     res.style.display='block';
     res.querySelectorAll('.fs-item').forEach(el=>el.addEventListener('click', ()=>{
@@ -169,155 +180,10 @@ function foodPicker(title, onPick){
   });
 }
 
-/* ---- rendu journal ---- */
-function renderJournal(){
-  const j = ensureDay(day);
-  const el = document.getElementById('rJournal');
-  const tdee = Store.data.tdee;
-  const targets = (window.TDEE && tdee) ? window.TDEE.targets(tdee) : null;
-
-  let dayKcal=0, dayProt=0;
-  for(const c of j.cats) for(const it of c.items){ dayKcal+=kcalOf(it); dayProt+=protOf(it); }
-
-  let gauges = '';
-  if(targets){
-    const pk = Math.min(100, dayKcal/targets.kcal*100);
-    const pp = Math.min(100, dayProt/targets.protMax*100);
-    gauges = `
-      <div class="card" style="background:var(--card2)">
-        <div class="gauge"><i style="width:${pk}%" class="${dayKcal>targets.kcal?'over':''}"></i></div>
-        <div class="gauge-l"><span>🔥 ${r0(dayKcal)} / ${r0(targets.kcal)} kcal (objectif ${esc(targets.objectifLabel)})</span><span>${r0(targets.kcal-dayKcal)} restantes</span></div>
-        <div class="gauge" style="margin-top:8px"><i style="width:${pp}%" style2=""></i></div>
-        <div class="gauge-l"><span>🥩 ${r1(dayProt)} g / ${r0(targets.protMin)}–${r0(targets.protMax)} g protéines</span></div>
-      </div>`;
-  } else {
-    gauges = `<div class="small muted" style="margin-bottom:10px">💡 Configure ton TDEE (onglet 🔥) pour voir tes jauges kcal/protéines du jour.</div>`;
-  }
-
-  el.innerHTML = gauges + j.cats.map(c=>{
-    const ck = c.items.reduce((s,it)=>s+kcalOf(it),0);
-    const cp = c.items.reduce((s,it)=>s+protOf(it),0);
-    return `
-    <div class="card">
-      <div class="row" style="margin-bottom:6px">
-        <h2 style="margin:0" data-ren="${c.id}" title="Renommer">${esc(c.nom)} <span class="muted small">✎</span></h2>
-        <div class="small muted"><b style="color:var(--text)">${r0(ck)}</b> kcal · <b style="color:var(--text)">${r1(cp)}</b> g prot</div>
-      </div>
-      <div class="list">
-        ${c.items.map(it=>`
-          <div class="li-row">
-            <div class="grow" data-qty="${c.id}:${it.id}" title="Modifier la quantité">
-              <div class="name">${esc(it.nom)}</div>
-              <span class="chip">${qtyChip(it)}</span>
-              <span class="sub"> · ${r0(it.kcal100)} kcal/100g</span>
-            </div>
-            <div class="val">${r0(kcalOf(it))} <small>kcal</small><br><span class="small" style="font-weight:400">${r1(protOf(it))} g prot</span></div>
-            <button class="li-x" data-del="${c.id}:${it.id}">✕</button>
-          </div>`).join('')}
-      </div>
-      <div style="display:flex;gap:8px;margin-top:8px">
-        <button class="btn" data-add="${c.id}" style="flex:1">+ Ajouter</button>
-        <button class="li-x" data-delcat="${c.id}" title="Supprimer la catégorie">🗑</button>
-      </div>
-    </div>`;
-  }).join('') + `
-    <div style="display:flex;gap:8px">
-      <button class="btn" id="rAddCat" style="flex:1">+ Catégorie</button>
-      <button class="btn" id="rSaveTpl" title="Les jours suivants utiliseront ces catégories">📌 Modèle par défaut</button>
-    </div>`;
-
-  // listeners
-  el.querySelectorAll('[data-add]').forEach(b=>b.addEventListener('click', ()=>{
-    const cat = j.cats.find(c=>c.id===b.dataset.add);
-    foodPicker('Ajouter à « '+cat.nom+' »', item=>{ cat.items.push(item); touchDay(); renderJournal(); });
-  }));
-  el.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click', ()=>{
-    const [cid,iid] = b.dataset.del.split(':');
-    const cat = j.cats.find(c=>c.id===cid);
-    cat.items = cat.items.filter(i=>i.id!==iid);
-    touchDay(); renderJournal();
-  }));
-  el.querySelectorAll('[data-qty]').forEach(d=>d.addEventListener('click', ()=>{
-    const [cid,iid] = d.dataset.qty.split(':');
-    const it = j.cats.find(c=>c.id===cid).items.find(i=>i.id===iid);
-    const a = askQty(it.nom, it.units, r0(it.qty));
-    if(!a) return;
-    it.qty = a.qty; it.units = a.units; it.unitG = a.unitG; it.unitLabel = a.unitLabel;
-    touchDay(); renderJournal();
-  }));
-  el.querySelectorAll('[data-ren]').forEach(h=>h.addEventListener('click', ()=>{
-    const cat = j.cats.find(c=>c.id===h.dataset.ren);
-    const v = prompt('Nom de la catégorie :', cat.nom);
-    if(v && v.trim()){ cat.nom = v.trim(); touchDay(); renderJournal(); }
-  }));
-  el.querySelectorAll('[data-delcat]').forEach(b=>b.addEventListener('click', ()=>{
-    const cat = j.cats.find(c=>c.id===b.dataset.delcat);
-    if(cat.items.length && !confirm(`Supprimer « ${cat.nom} » et ses ${cat.items.length} aliment(s) ?`)) return;
-    j.cats = j.cats.filter(c=>c.id!==cat.id);
-    touchDay(); renderJournal();
-  }));
-  el.querySelector('#rAddCat').addEventListener('click', ()=>{
-    const v = prompt('Nom de la nouvelle catégorie (ex : Collation 3) :');
-    if(v && v.trim()){ j.cats.push({id:uid(), nom:v.trim(), items:[]}); touchDay(); renderJournal(); }
-  });
-  el.querySelector('#rSaveTpl').addEventListener('click', ()=>{
-    Store.data.catTemplate = j.cats.map(c=>({id:uid(), nom:c.nom}));
-    Store.data.catTemplateUpdatedAt = nowIso();
-    Store.save();
-    alert('Ces catégories seront proposées par défaut pour les nouveaux jours ✔');
-  });
-  cal.refresh();
-}
-
-/* ---- rendu recettes ---- */
-function renderRecettes(){
-  const el = document.getElementById('rRecettes');
-  const recipes = Store.data.recipes.filter(r=>!r.deleted);
-  const foods = Store.data.foods.filter(f=>!f.deleted);
-  el.innerHTML = `
-    <div class="card">
-      <div class="row"><h2 style="margin:0">📖 Mes recettes</h2>
-        <button class="btn primary" id="rcNew">+ Recette</button></div>
-      <div class="list">
-        ${recipes.length ? recipes.map(rec=>{
-          const t = recipeTotals(rec);
-          return `<div class="li-row">
-            <div class="grow" data-edit="${rec.id}">
-              <div class="name">${esc(rec.nom)}</div>
-              <div class="sub">${rec.items.length} ingrédient(s) · ${r0(t.weight)} g au total</div>
-            </div>
-            <div class="val">${r0(t.kcal)} <small>kcal</small><br><span class="small" style="font-weight:400">${r1(t.prot)} g prot</span></div>
-            <button class="li-x" data-delrec="${rec.id}">✕</button>
-          </div>`; }).join('') : '<div class="empty small">Aucune recette. Crée ta première (ex : Pâtes bolognaises) !</div>'}
-      </div>
-    </div>
-    <div class="card">
-      <div class="row"><h2 style="margin:0">⭐ Mes aliments perso</h2></div>
-      <div class="list">
-        ${foods.length ? foods.map(f=>`
-          <div class="li-row">
-            <div class="grow"><div class="name">${esc(f.nom)}</div>
-              <div class="sub">${r0(f.kcal)} kcal · ${r1(f.prot)} g prot /100 g</div></div>
-            <button class="li-x" data-delfood="${f.id}">✕</button>
-          </div>`).join('') : '<div class="empty small">Aucun aliment perso (la base CIQUAL couvre déjà ~2300 aliments).</div>'}
-      </div>
-    </div>`;
-  el.querySelector('#rcNew').addEventListener('click', ()=>editRecipe(null));
-  el.querySelectorAll('[data-edit]').forEach(d=>d.addEventListener('click', ()=>editRecipe(d.dataset.edit)));
-  el.querySelectorAll('[data-delrec]').forEach(b=>b.addEventListener('click', ()=>{
-    const rec = Store.data.recipes.find(r=>r.id===b.dataset.delrec);
-    if(!confirm(`Supprimer la recette « ${rec.nom} » ?`)) return;
-    rec.deleted = true; rec.updatedAt = nowIso(); Store.save(); renderRecettes();
-  }));
-  el.querySelectorAll('[data-delfood]').forEach(b=>b.addEventListener('click', ()=>{
-    const f = Store.data.foods.find(x=>x.id===b.dataset.delfood);
-    if(!confirm(`Supprimer « ${f.nom} » ?`)) return;
-    f.deleted = true; f.updatedAt = nowIso(); Store.save(); renderRecettes();
-  }));
-}
-
-function editRecipe(id){
-  let rec = id ? Store.data.recipes.find(r=>r.id===id) : {id:uid(), nom:'', items:[], updatedAt:nowIso()};
+/* ---- éditeur de plat (recette) ---- */
+function editRecipe(id, presetCat){
+  let rec = id ? Store.data.recipes.find(r=>r.id===id)
+              : {id:uid(), nom:'', cat:presetCat||null, items:[], updatedAt:nowIso()};
   const isNew = !id;
   const bg = document.createElement('div');
   bg.className='modal-bg';
@@ -328,8 +194,13 @@ function editRecipe(id){
     const t = recipeTotals(rec);
     bg.innerHTML = `
       <div class="modal">
-        <h3>${isNew?'Nouvelle recette':'Modifier la recette'}</h3>
-        <div class="field"><label>Nom</label><input type="text" id="rcNom" value="${esc(rec.nom)}" placeholder="Pâtes bolognaises"></div>
+        <h3>${isNew?'Nouveau plat':'Modifier le plat'}</h3>
+        <div class="fieldrow">
+          <div class="field" style="flex:2"><label>Nom</label><input type="text" id="rcNom" value="${esc(rec.nom)}" placeholder="Pâtes bolognaises"></div>
+          <div class="field"><label>Catégorie</label>
+            <select id="rcCat">${Store.data.mealCats.map(c=>`<option value="${c.id}" ${rec.cat===c.id?'selected':''}>${esc(c.nom)}</option>`).join('')}</select>
+          </div>
+        </div>
         <div class="list">
           ${rec.items.map(it=>`
             <div class="li-row">
@@ -341,16 +212,18 @@ function editRecipe(id){
         </div>
         <button class="btn" id="rcAdd" style="width:100%;margin-top:8px">+ Ingrédient</button>
         <div class="tiles" style="margin-top:10px">
-          <div class="tile"><div class="v">${r0(t.kcal)}</div><div class="l">kcal total</div></div>
-          <div class="tile"><div class="v">${r1(t.prot)}</div><div class="l">g prot total</div></div>
-          <div class="tile"><div class="v">${t.weight?r0(t.kcal/t.weight*100):0}</div><div class="l">kcal /100 g</div></div>
+          <div class="tile"><div class="v">${r0(t.kcal)}</div><div class="l">kcal</div></div>
+          <div class="tile"><div class="v">${r1(t.prot)}</div><div class="l">g prot</div></div>
+          <div class="tile"><div class="v">${r0(t.weight)}</div><div class="l">g au total</div></div>
         </div>
         <div class="actions">
           <button class="btn primary" id="rcSave">Enregistrer</button>
+          ${!isNew?'<button class="btn danger" id="rcDel">🗑</button>':''}
           <button class="btn" id="rcCancel">Annuler</button>
         </div>
       </div>`;
     bg.querySelector('#rcNom').addEventListener('input', e=>rec.nom=e.target.value);
+    bg.querySelector('#rcCat').addEventListener('change', e=>rec.cat=e.target.value);
     bg.querySelector('#rcAdd').addEventListener('click', ()=>{
       foodPicker('Ajouter un ingrédient', item=>{ rec.items.push(item); draw(); });
     });
@@ -359,15 +232,22 @@ function editRecipe(id){
       const it = rec.items.find(i=>i.id===d.dataset.q);
       const a = askQty(it.nom, it.units, r0(it.qty));
       if(!a) return;
-      it.qty=a.qty; it.units=a.units; it.unitG=a.unitG; it.unitLabel=a.unitLabel;
+      it.qty=a.qty; it.units=a.units; it.unitG=a.unitG; it.unitOne=a.unitOne; it.unitMany=a.unitMany; it.unitLabel=a.unitLabel;
       draw();
     }));
     bg.querySelector('#rcSave').addEventListener('click', ()=>{
-      if(!rec.nom.trim()){ alert('Donne un nom à la recette.'); return; }
+      if(!rec.nom.trim()){ alert('Donne un nom au plat.'); return; }
       if(!rec.items.length){ alert('Ajoute au moins un ingrédient.'); return; }
+      if(!rec.cat) rec.cat = Store.data.mealCats[0].id;
       rec.updatedAt = nowIso();
       if(isNew) Store.data.recipes.push(rec);
-      Store.save(); close(); renderRecettes();
+      Store.save(); close(); render();
+    });
+    const del = bg.querySelector('#rcDel');
+    if(del) del.addEventListener('click', ()=>{
+      if(!confirm(`Supprimer « ${rec.nom} » de ta bibliothèque ?\n(Les jours où tu l'as mangé gardent leurs valeurs.)`)) return;
+      rec.deleted = true; rec.updatedAt = nowIso();
+      Store.save(); close(); render();
     });
     bg.querySelector('#rcCancel').addEventListener('click', close);
   }
@@ -375,34 +255,150 @@ function editRecipe(id){
   draw();
 }
 
-/* ---- init ---- */
-function setTab(t){
-  TAB = t;
-  document.getElementById('rTabJournal').classList.toggle('active', t==='journal');
-  document.getElementById('rTabRecettes').classList.toggle('active', t==='recettes');
-  document.getElementById('rJournal').style.display = t==='journal' ? '' : 'none';
-  document.getElementById('rRecettes').style.display = t==='recettes' ? '' : 'none';
-  document.getElementById('rCalWrap').style.display = t==='journal' ? '' : 'none';
-  t==='journal' ? renderJournal() : renderRecettes();
+/* ---- rendu principal ---- */
+function render(){
+  const j = ensureDay(day);
+  const el = document.getElementById('rMain');
+  const tdee = Store.data.tdee;
+  const targets = (window.TDEE && tdee) ? window.TDEE.targets(tdee) : null;
+  const tot = dayTotals(j);
+  const isToday = day === todayKey();
+
+  /* jauges */
+  let gauges;
+  if(targets){
+    const pk = Math.min(100, tot.kcal/targets.kcal*100);
+    const pp = Math.min(100, tot.prot/targets.protMin*100);
+    const protOk = tot.prot >= targets.protMin;
+    const rest = targets.kcal - tot.kcal;
+    gauges = `
+      <div class="card" style="position:sticky;top:0;z-index:10">
+        <div class="gauge"><i style="width:${pk}%" class="${tot.kcal>targets.kcal?'over':''}"></i></div>
+        <div class="gauge-l"><span>🔥 <b style="color:var(--text)">${r0(tot.kcal)}</b> / ${r0(targets.kcal)} kcal</span>
+          <span>${rest>=0 ? r0(rest)+' restantes' : '⚠️ +'+r0(-rest)+' au-dessus'}</span></div>
+        <div class="gauge" style="margin-top:8px"><i style="width:${pp}%;background:${protOk?'var(--good)':'var(--line)'}"></i></div>
+        <div class="gauge-l"><span>🥩 <b style="color:var(--text)">${r1(tot.prot)}</b> / ${r0(targets.protMin)} g prot min ${protOk?'✅':''}</span>
+          <span class="muted">max conseillé ${r0(targets.protMax)} g</span></div>
+      </div>`;
+  } else {
+    gauges = `<div class="card"><div class="small muted">💡 Configure ton TDEE (onglet 🔥) pour voir tes jauges d'objectif kcal/protéines.</div>
+      <div class="gauge-l" style="margin-top:6px"><span>🔥 <b style="color:var(--text)">${r0(tot.kcal)}</b> kcal</span>
+      <span>🥩 <b style="color:var(--text)">${r1(tot.prot)}</b> g prot</span></div></div>`;
+  }
+
+  /* extras du jour (aliments ponctuels) */
+  const extras = j.eaten.filter(e=>e.type==='food');
+  const extrasHtml = extras.length ? `
+    <div class="card">
+      <h2>🍴 Extras ${isToday?"d'aujourd'hui":'du '+esc(labelForKey(day,false))}</h2>
+      <div class="list">
+        ${extras.map(e=>`
+          <div class="li-row">
+            <div class="grow"><div class="name">${esc(e.nom)}</div>
+              <div class="sub">${e.count>1?'×'+e.count+' · ':''}${r0(e.qty)} g</div></div>
+            <div class="val">${r0(e.kcal*e.count)} <small>kcal</small><br><span class="small" style="font-weight:400">${r1(e.prot*e.count)} g prot</span></div>
+            <button class="li-x" data-delextra="${e.id}">✕</button>
+          </div>`).join('')}
+      </div>
+    </div>` : '';
+
+  /* bibliothèque par catégories */
+  const recipes = Store.data.recipes.filter(r=>!r.deleted);
+  const catsHtml = Store.data.mealCats.map(c=>{
+    const meals = recipes.filter(r=>r.cat===c.id || (!r.cat && c===Store.data.mealCats[0]));
+    return `
+    <div class="card">
+      <div class="row" style="margin-bottom:6px">
+        <h2 style="margin:0" data-rencat="${c.id}" title="Renommer">${esc(c.nom)} <span class="muted small">✎</span></h2>
+        <button class="li-x" data-delcat="${c.id}" title="Supprimer la catégorie">🗑</button>
+      </div>
+      <div class="list">
+        ${meals.length ? meals.map(rec=>{
+          const t = recipeTotals(rec);
+          const n = eatenCount(j, rec.id);
+          return `
+          <div class="li-row" ${n?'style="outline:1.5px solid var(--line)"':''}>
+            <div class="grow" data-edit="${rec.id}" title="Modifier">
+              <div class="name">${esc(rec.nom)}</div>
+              <div class="sub">${r0(t.kcal)} kcal · ${r1(t.prot)} g prot</div>
+            </div>
+            ${n?`<button class="btn" data-minus="${rec.id}" style="min-width:44px;padding:6px">−</button>
+                 <b style="min-width:26px;text-align:center">×${n}</b>`:''}
+            <button class="btn ${n?'':'primary'}" data-plus="${rec.id}" style="min-width:48px;padding:6px 10px">＋</button>
+          </div>`; }).join('')
+        : '<div class="small muted" style="padding:6px 2px">Aucun plat — crée le premier 👇</div>'}
+      </div>
+      <button class="btn" data-newmeal="${c.id}" style="width:100%;margin-top:8px">+ Nouveau plat</button>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = gauges + extrasHtml + catsHtml + `
+    <div style="display:flex;gap:8px">
+      <button class="btn" id="rAddCat" style="flex:1">+ Catégorie</button>
+      <button class="btn" id="rAddExtra" style="flex:1">🍴 + Extra (aliment ponctuel)</button>
+    </div>`;
+
+  /* listeners */
+  el.querySelectorAll('[data-plus]').forEach(b=>b.addEventListener('click', ()=>{
+    bumpRecipe(j, Store.data.recipes.find(r=>r.id===b.dataset.plus), +1);
+  }));
+  el.querySelectorAll('[data-minus]').forEach(b=>b.addEventListener('click', ()=>{
+    bumpRecipe(j, Store.data.recipes.find(r=>r.id===b.dataset.minus), -1);
+  }));
+  el.querySelectorAll('[data-edit]').forEach(d=>d.addEventListener('click', ()=>editRecipe(d.dataset.edit)));
+  el.querySelectorAll('[data-newmeal]').forEach(b=>b.addEventListener('click', ()=>editRecipe(null, b.dataset.newmeal)));
+  el.querySelectorAll('[data-delextra]').forEach(b=>b.addEventListener('click', ()=>{
+    j.eaten = j.eaten.filter(e=>e.id!==b.dataset.delextra);
+    touchDay(); render();
+  }));
+  el.querySelectorAll('[data-rencat]').forEach(h=>h.addEventListener('click', ()=>{
+    const c = Store.data.mealCats.find(x=>x.id===h.dataset.rencat);
+    const v = prompt('Nom de la catégorie :', c.nom);
+    if(v && v.trim()){ c.nom=v.trim(); Store.data.mealCatsUpdatedAt=nowIso(); Store.save(); render(); }
+  }));
+  el.querySelectorAll('[data-delcat]').forEach(b=>b.addEventListener('click', ()=>{
+    const c = Store.data.mealCats.find(x=>x.id===b.dataset.delcat);
+    const used = Store.data.recipes.some(r=>!r.deleted && r.cat===c.id);
+    if(used){ alert('Cette catégorie contient des plats — déplace-les ou supprime-les d\'abord.'); return; }
+    if(Store.data.mealCats.length<=1){ alert('Il faut au moins une catégorie.'); return; }
+    if(!confirm(`Supprimer la catégorie « ${c.nom} » ?`)) return;
+    Store.data.mealCats = Store.data.mealCats.filter(x=>x.id!==c.id);
+    Store.data.mealCatsUpdatedAt = nowIso(); Store.save(); render();
+  }));
+  el.querySelector('#rAddCat').addEventListener('click', ()=>{
+    const v = prompt('Nom de la nouvelle catégorie (ex : Petit-déj) :');
+    if(v && v.trim()){
+      Store.data.mealCats.push({id:uid(), nom:v.trim()});
+      Store.data.mealCatsUpdatedAt = nowIso(); Store.save(); render();
+    }
+  });
+  el.querySelector('#rAddExtra').addEventListener('click', ()=>{
+    foodPicker('Extra — aliment ponctuel', item=>{
+      j.eaten.push({id:item.id, type:'food', nom:item.nom, qty:item.qty,
+        units:item.units, unitLabel:item.unitLabel, unitOne:item.unitOne, unitMany:item.unitMany,
+        kcal:item.kcal100*item.qty/100, prot:item.prot100*item.qty/100, count:1});
+      touchDay(); render();
+    });
+  });
+  cal.refresh();
 }
 
+/* ---- init ---- */
 document.addEventListener('DOMContentLoaded', ()=>{
   day = todayKey();
   cal = createCalendar({
     button: document.getElementById('rDayBtn'),
     label:  document.getElementById('rDayLabel'),
     popup:  document.getElementById('rDayCal'),
-    isSelectable: () => true,                                   // planifier demain = autorisé
-    isMarked: k => { const jd=Store.data.journal[k]; return !!jd && jd.cats.some(c=>c.items.length); },
-    onSelect: k => { day = k; renderJournal(); }
+    isSelectable: () => true,
+    isMarked: k => { const jd=Store.data.journal[k]; return !!jd && Array.isArray(jd.eaten) && jd.eaten.length>0; },
+    onSelect: k => { day = k; render(); }
   });
   cal.setSelected(day);
 
-  document.getElementById('rTabJournal').addEventListener('click', ()=>setTab('journal'));
-  document.getElementById('rTabRecettes').addEventListener('click', ()=>setTab('recettes'));
-  document.addEventListener('pageshow', e=>{ if(e.detail.page==='repas'){ loadCiqual().catch(()=>{}); TAB==='journal'?renderJournal():renderRecettes(); } });
-  document.addEventListener('storechange', ()=>{ if(document.getElementById('page-repas').classList.contains('active')) TAB==='journal'?renderJournal():renderRecettes(); });
-  renderJournal();
+  document.addEventListener('pageshow', e=>{ if(e.detail.page==='repas'){ loadCiqual().catch(()=>{}); render(); } });
+  document.addEventListener('storechange', ()=>{ if(document.getElementById('page-repas').classList.contains('active')) render(); });
+  render();
 });
 
 })();
