@@ -147,6 +147,8 @@ function renderResults(){
 document.addEventListener('DOMContentLoaded', ()=>{
   render();
   document.addEventListener('pageshow', e=>{ if(e.detail.page==='tdee') render(); });
+  // changement de profil / sync : recharger le formulaire du bon profil
+  document.addEventListener('profilechange', ()=>{ if(document.getElementById('page-tdee').classList.contains('active')) render(); });
 });
 
 })();

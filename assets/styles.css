@@ -18,6 +18,12 @@ a{color:var(--line)}
 .iconbtn{background:var(--card2);border:1px solid var(--line2);color:var(--muted);border-radius:10px;
          min-width:44px;min-height:44px;font-size:1.1rem;cursor:pointer}
 .iconbtn:active{background:var(--line2)}
+#btnProfile{max-width:38vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:10px 10px}
+.prof-row{display:flex;align-items:center;gap:10px;background:var(--card2);border-radius:12px;padding:10px 12px;min-height:52px}
+.prof-row.on{outline:2px solid var(--line)}
+.prof-row .grow{flex:1;min-width:0;cursor:pointer}
+.prof-row .nom{font-size:.95rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.prof-row .sub{color:var(--muted);font-size:.72rem;margin-top:1px}
 
 /* ===== Navigation bas (mobile) ===== */
 .nav{position:fixed;bottom:0;left:0;right:0;z-index:50;display:flex;background:#0c0d20;
