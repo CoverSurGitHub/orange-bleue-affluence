@@ -139,6 +139,14 @@ const Store = {
     return this.data;
   },
   save(){
+    if(Sync.autoRO){
+      alert('👁 Mode consultation : tu regardes les données du propriétaire, les modifications ne sont pas enregistrées.\n(Pour tenir ton propre suivi sur cet appareil : ⚙️ Réglages → « Mon propre suivi ».)');
+      // restaure l'état publié (annule la modification en mémoire)
+      fetch(Sync.FILE + '?_=' + Date.now()).then(r=>r.ok?r.json():null).then(d=>{
+        if(d){ this.data = d; document.dispatchEvent(new CustomEvent('storechange')); }
+      }).catch(()=>{});
+      return;
+    }
     this.data.updatedAt = nowIso();
     localStorage.setItem(STORE_KEY, JSON.stringify(this.data));
     document.dispatchEvent(new CustomEvent('storechange'));
@@ -146,13 +154,18 @@ const Store = {
   }
 };
 
-/* ===== Sync GitHub privé (API Contents, merge last-write-wins) ===== */
+/* ===== Sync via le repo public (API Contents, merge last-write-wins) =====
+   - Avec jeton (le propriétaire) : lecture + écriture de data/perso.json.
+   - Sans jeton (visiteur/consultation) : si data/perso.json existe sur le site,
+     l'app passe automatiquement en lecture seule sur ces données.            */
 const Sync = {
-  cfgKey: 'ob.sync.cfg',      // {token, owner, repo} — JAMAIS synchronisé
+  cfgKey: 'ob.sync.cfg',      // {token, owner, repo} — jamais synchronisé
+  FILE: 'data/perso.json',
   get cfg(){ try{ return JSON.parse(localStorage.getItem(this.cfgKey)); }catch(e){ return null; } },
   set cfg(v){ v ? localStorage.setItem(this.cfgKey, JSON.stringify(v)) : localStorage.removeItem(this.cfgKey); },
   status: 'off',              // off | ok | syncing | error
   lastError: null,
+  autoRO: false,              // consultation automatique (sans jeton)
   _timer: null,
   _sha: null,
 
@@ -160,8 +173,9 @@ const Sync = {
     this.status = s; this.lastError = err || null;
     const el = document.getElementById('syncBadge');
     if(el){
-      el.textContent = s==='off' ? '' : (s==='ok' ? '☁️✓' : s==='syncing' ? '☁️…' : '☁️⚠️');
-      el.title = s==='error' ? ('Sync : ' + (err||'erreur')) : 'Synchronisation ' + s;
+      const ic = this.autoRO ? '👁' : '☁️';
+      el.textContent = s==='off' ? '' : (s==='ok' ? ic+'✓' : s==='syncing' ? ic+'…' : ic+'⚠️');
+      el.title = s==='error' ? ('Sync : ' + (err||'erreur')) : (this.autoRO?'Consultation seule · ':'') + 'synchronisation ' + s;
     }
   },
   api(path, init={}){
@@ -201,7 +215,7 @@ const Sync = {
     if(!this.cfg) return;
     this.setStatus('syncing');
     try{
-      const res = await this.api('data.json');
+      const res = await this.api(this.FILE);
       if(res.status === 404){ this._sha = null; this.setStatus('ok'); return; } // pas encore de fichier
       if(!res.ok) throw new Error('HTTP ' + res.status);
       const j = await res.json();
@@ -212,6 +226,31 @@ const Sync = {
       document.dispatchEvent(new CustomEvent('storechange'));
       this.setStatus('ok');
     }catch(e){ this.setStatus('error', e.message); }
+  },
+  /* Consultation automatique (visiteur sans jeton) : lit le fichier publié sur le site.
+     Ne s'active QUE si cet appareil n'a aucune donnée locale (pour ne rien écraser). */
+  async tryAutoRO(){
+    if(localStorage.getItem('ob.optOutRO')) return;   // cet appareil tient son propre suivi
+    const d = Store.data;
+    const localEmpty = !Object.keys(d.weights).length && !d.recipes.length && !d.foods.length
+      && !d.tdee && !Object.values(d.journal).some(j=>j.cats.some(c=>c.items.length));
+    if(!localEmpty) return;
+    try{
+      const res = await fetch(this.FILE + '?_=' + Date.now());
+      if(!res.ok) return;
+      const remote = await res.json();
+      if(remote.schemaVersion !== 1) return;
+      Store.data = remote;                 // en mémoire uniquement (pas de persistance locale)
+      this.autoRO = true;
+      document.dispatchEvent(new CustomEvent('storechange'));
+      this.setStatus('ok');
+      setInterval(async ()=>{
+        try{
+          const r = await fetch(this.FILE + '?_=' + Date.now());
+          if(r.ok){ Store.data = await r.json(); document.dispatchEvent(new CustomEvent('storechange')); }
+        }catch(e){}
+      }, 5*60*1000);
+    }catch(e){}
   },
   schedulePush(){
     if(!this.cfg) return;
@@ -227,7 +266,7 @@ const Sync = {
         content: btoa(unescape(encodeURIComponent(JSON.stringify(Store.data)))),
       };
       if(this._sha) body.sha = this._sha;
-      const res = await this.api('data.json', {method:'PUT', body: JSON.stringify(body)});
+      const res = await this.api(this.FILE, {method:'PUT', body: JSON.stringify(body)});
       if(res.status === 409 || res.status === 422){
         if(attempt >= 2) throw new Error('conflit non résolu');
         await this.pull();                      // récupère + merge + nouveau sha
@@ -243,25 +282,35 @@ const Sync = {
 
 /* ===== Réglages (modale) ===== */
 function openSettings(){
-  const c = Sync.cfg || {owner:'', repo:'', token:''};
+  const c = Sync.cfg || {owner:'CoverSurGitHub', repo:'orange-bleue-affluence', token:''};
   const bg = document.createElement('div');
   bg.className = 'modal-bg';
   bg.innerHTML = `
     <div class="modal">
       <h3>⚙️ Réglages</h3>
       <div class="card" style="background:var(--card2)">
-        <h2>Synchronisation privée (GitHub)</h2>
-        <p class="small muted" style="margin:0 0 10px">Tes pesées et repas sont stockés sur CET appareil.
-        Pour les retrouver sur PC ET mobile, crée un dépôt GitHub <b>privé</b> et colle ici un jeton d'accès.
-        État actuel : <b>${Sync.cfg ? 'configurée' : 'non configurée'}</b>${Sync.lastError ? ' — erreur : '+esc(Sync.lastError) : ''}</p>
-        <div class="field"><label>Propriétaire (ton pseudo GitHub)</label><input id="syncOwner" type="text" value="${esc(c.owner)}" placeholder="CoverSurGitHub" autocapitalize="off"></div>
-        <div class="field"><label>Nom du dépôt privé</label><input id="syncRepo" type="text" value="${esc(c.repo)}" placeholder="perso-data" autocapitalize="off"></div>
-        <div class="field"><label>Jeton (fine-grained, Contents RW sur ce seul dépôt)</label><input id="syncToken" type="password" value="${esc(c.token)}" placeholder="github_pat_…"></div>
+        <h2>Synchronisation (propriétaire)</h2>
+        <p class="small muted" style="margin:0 0 10px">Colle ton jeton GitHub pour enregistrer tes données
+        dans le dépôt public — elles se synchronisent alors entre ton PC et ton téléphone.
+        Sans jeton, l'app affiche les données publiées en <b>consultation seule</b> (parfait pour un proche : il n'a rien à configurer).
+        ⚠️ Les données sont publiques (repo public).
+        État : <b>${Sync.cfg ? 'écriture activée' : (Sync.autoRO ? 'consultation seule' : 'locale')}</b>${Sync.lastError ? ' — erreur : '+esc(Sync.lastError) : ''}</p>
+        <div class="fieldrow">
+          <div class="field"><label>Propriétaire</label><input id="syncOwner" type="text" value="${esc(c.owner)}" autocapitalize="off"></div>
+          <div class="field"><label>Dépôt</label><input id="syncRepo" type="text" value="${esc(c.repo)}" autocapitalize="off"></div>
+        </div>
+        <div class="field"><label>Jeton (fine-grained, Contents RW sur ce dépôt)</label><input id="syncToken" type="password" value="${esc(c.token)}" placeholder="github_pat_…"></div>
         <div class="actions" style="display:flex;gap:8px">
-          <button class="btn primary" id="syncSave">Activer la sync</button>
+          <button class="btn primary" id="syncSave">Activer l'écriture</button>
           <button class="btn danger" id="syncOff">Désactiver</button>
         </div>
       </div>
+      ${Sync.autoRO ? `<div class="card" style="background:var(--card2)">
+        <h2>👁 Tu es en consultation seule</h2>
+        <p class="small muted" style="margin:0 0 10px">Cet appareil affiche les données publiées par le propriétaire.
+        Si tu veux tenir TON propre suivi ici (il restera local à cet appareil) :</p>
+        <button class="btn" id="optOut">✍️ Mon propre suivi sur cet appareil</button>
+      </div>` : ''}
       <div class="card" style="background:var(--card2)">
         <h2>Sauvegarde manuelle</h2>
         <div style="display:flex;gap:8px">
@@ -282,11 +331,20 @@ function openSettings(){
     const token = bg.querySelector('#syncToken').value.trim();
     if(!owner || !repo || !token){ alert('Remplis les 3 champs.'); return; }
     Sync.cfg = {owner, repo, token};
+    Sync.autoRO = false;
+    localStorage.setItem('ob.optOutRO','1');        // cet appareil devient un appareil "propriétaire"
     await Sync.pull();
-    if(Sync.status === 'error'){ alert('Échec de connexion : ' + Sync.lastError + '\nVérifie le jeton et le nom du dépôt.'); }
-    else { Sync.schedulePush(); alert('Sync activée ✔'); close(); }
+    if(Sync.status === 'error'){ alert('Échec de connexion : ' + Sync.lastError + '\nVérifie le jeton et le nom du dépôt.'); Sync.cfg = null; }
+    else { Sync.schedulePush(); alert('Écriture activée ✔ Tes données seront synchronisées.'); close(); }
   });
   bg.querySelector('#syncOff').addEventListener('click', ()=>{ Sync.cfg = null; Sync.setStatus('off'); close(); });
+  const optOut = bg.querySelector('#optOut');
+  if(optOut) optOut.addEventListener('click', ()=>{
+    if(!confirm('Cet appareil quittera la consultation et tiendra un suivi local vierge. Continuer ?')) return;
+    localStorage.setItem('ob.optOutRO','1');
+    localStorage.removeItem(STORE_KEY);
+    location.reload();
+  });
   bg.querySelector('#expBtn').addEventListener('click', ()=>{
     const blob = new Blob([JSON.stringify(Store.data, null, 1)], {type:'application/json'});
     const a = document.createElement('a');
@@ -321,4 +379,5 @@ document.addEventListener('DOMContentLoaded', ()=>{
   document.getElementById('btnSettings').addEventListener('click', openSettings);
   showPage(localStorage.getItem('ob.lastPage') || 'salle');
   if(Sync.cfg) Sync.pull();
+  else Sync.tryAutoRO();
 });
