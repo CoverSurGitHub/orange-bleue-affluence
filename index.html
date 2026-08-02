@@ -171,11 +171,24 @@
 </main>
 
 <!-- ===================== NAV ===================== -->
+<!-- ===================== NOUS ===================== -->
+<main class="page" id="page-nous">
+  <div class="tabs">
+    <button class="tab active" id="nTabMsg">💬 Messages</button>
+    <button class="tab" id="nTabDates">💘 Nos dates</button>
+    <button class="btn" id="nRefresh" title="Actualiser" style="margin-left:auto">↻</button>
+  </div>
+  <div id="nMsg"></div>
+  <div id="nDates" style="display:none"></div>
+  <div class="foot">Petit courrier privé entre vos deux profils · se met à jour ~toutes les 45 s sur cette page</div>
+</main>
+
 <nav class="nav">
   <button id="nav-salle"><span class="ico">🏋️</span>Salle</button>
   <button id="nav-poids"><span class="ico">⚖️</span>Poids</button>
   <button id="nav-repas"><span class="ico">🍽️</span>Repas</button>
   <button id="nav-tdee"><span class="ico">🔥</span>TDEE</button>
+  <button id="nav-nous" style="position:relative"><span class="ico">💌</span>Nous<span class="navdot" id="nousDot" style="display:none"></span></button>
 </nav>
 
 <script src="assets/app.js"></script>
@@ -184,5 +197,6 @@
 <script src="assets/poids.js"></script>
 <script src="assets/repas.js"></script>
 <script src="assets/tdee.js"></script>
+<script src="assets/nous.js"></script>
 </body>
 </html>

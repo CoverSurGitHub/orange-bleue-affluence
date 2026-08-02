@@ -15,7 +15,7 @@ function uid(){ return Date.now().toString(36) + Math.random().toString(36).slic
 function nowIso(){ return new Date().toISOString(); }
 
 /* ===== Navigation entre pages ===== */
-const PAGES = ['salle','poids','repas','tdee'];
+const PAGES = ['salle','poids','repas','tdee','nous'];
 function showPage(name){
   for(const p of PAGES){
     document.getElementById('page-'+p).classList.toggle('active', p===name);
@@ -135,16 +135,19 @@ function blankProfileData(){
     settings: {}
   };
 }
+function blankShared(){
+  return { messages: [], dates: [] };   // espace commun à tous les profils (💌 Nous)
+}
 /* Un ancien enregistrement v1 (données à plat) devient un profil. */
 function wrapV1(v1, nom){
   const d = blankProfileData();
   for(const k of Object.keys(d)) if(v1[k] !== undefined) d[k] = v1[k];
-  return {schemaVersion:2, updatedAt: v1.updatedAt || nowIso(),
+  return {schemaVersion:2, updatedAt: v1.updatedAt || nowIso(), shared: blankShared(),
           profiles:{ p1: {id:'p1', nom: nom||'Moi', createdAt: v1.updatedAt || nowIso(), updatedAt: v1.updatedAt || nowIso(), data:d} }};
 }
 function emptyContainer(){
   const id = 'p1';
-  return {schemaVersion:2, updatedAt: nowIso(),
+  return {schemaVersion:2, updatedAt: nowIso(), shared: blankShared(),
           profiles:{ [id]: {id, nom:'Moi', createdAt: nowIso(), updatedAt: nowIso(), data: blankProfileData()} }};
 }
 
@@ -207,6 +210,7 @@ const Store = {
     for(const p of Object.values(this.all.profiles)){
       p.data = Object.assign(blankProfileData(), p.data || {});
     }
+    this.all.shared = Object.assign(blankShared(), this.all.shared || {});
     // fige la migration tout de suite (évite de la refaire à chaque ouverture)
     if(wasV1) localStorage.setItem(STORE_KEY, JSON.stringify(this.all));
     return this.data;
@@ -284,6 +288,23 @@ const Sync = {
     out.settings = {...(remote.settings||{}), ...(out.settings||{})};
     return out;
   },
+  // fusion de l'espace partagé (messages + dates)
+  mergeShared(local, remote){
+    const out = Object.assign(blankShared(), JSON.parse(JSON.stringify(local||{})));
+    // messages : union par id ; si présent des deux côtés, le plus récemment modifié gagne
+    const byId = Object.fromEntries((out.messages||[]).map(m=>[m.id,m]));
+    for(const rm of (remote.messages||[])){
+      if(!byId[rm.id] || (rm.updatedAt||rm.at) > (byId[rm.id].updatedAt||byId[rm.id].at)) byId[rm.id] = rm;
+    }
+    out.messages = Object.values(byId).sort((a,b)=>(a.at||'').localeCompare(b.at||'')).slice(-500);
+    // dates : union par id, last-write-wins
+    const dById = Object.fromEntries((out.dates||[]).map(d=>[d.id,d]));
+    for(const rd of (remote.dates||[])){
+      if(!dById[rd.id] || (rd.updatedAt||'') > (dById[rd.id].updatedAt||'')) dById[rd.id] = rd;
+    }
+    out.dates = Object.values(dById);
+    return out;
+  },
   // fusion des conteneurs : profil par profil (les profils absents sont ajoutés)
   merge(local, remote){
     if(!remote) return local;
@@ -301,6 +322,7 @@ const Sync = {
         data:     this.mergeData(lp.data, rp.data||{})
       };
     }
+    out.shared = this.mergeShared(out.shared, remote.shared || {});
     return out;
   },
   async pull(){
@@ -380,6 +402,63 @@ const Sync = {
   }
 };
 
+/* ===== Apparence (par profil : thème, accent, bulles, compagnon) ===== */
+const THEMES = [
+  {id:'nuit', nom:'🌙 Nuit',          prev:'linear-gradient(135deg,#0f1024,#5385ed)'},
+  {id:'aero', nom:'🫧 Frutiger Aero', prev:'linear-gradient(135deg,#66b8e8,#d7f2ff)'},
+  {id:'rose', nom:'🍓 Rose bonbon',   prev:'linear-gradient(135deg,#ffd3e8,#f4569d)'},
+  {id:'neon', nom:'🌌 Néon pixel',    prev:'linear-gradient(135deg,#12041f,#00ffa3)'},
+];
+const PETS = ['🐧','🐸','🐱','🐰','🍓','⭐','🫧','🦆','🐢','🌸'];
+
+function appearance(){ return (Store.data.settings && Store.data.settings.appearance) || {}; }
+
+function applyAppearance(){
+  const a = appearance();
+  document.body.dataset.theme = a.theme || 'nuit';
+  const root = document.documentElement;
+  if(a.accent) root.style.setProperty('--line', a.accent);
+  else root.style.removeProperty('--line');
+
+  // bulles flottantes
+  let b = document.getElementById('bubbles');
+  if(a.bubbles){
+    if(!b){
+      b = document.createElement('div'); b.id = 'bubbles';
+      let h = '';
+      for(let i=0;i<12;i++){
+        const s = 8+Math.random()*26, l = Math.random()*100, d = 8+Math.random()*9, dl = Math.random()*9;
+        h += `<i style="left:${l}%;width:${s}px;height:${s}px;animation-duration:${d}s;animation-delay:-${dl}s"></i>`;
+      }
+      b.innerHTML = h;
+      document.body.appendChild(b);
+    }
+  } else if(b) b.remove();
+
+  // compagnon
+  let p = document.getElementById('pet');
+  if(a.pet){
+    if(!p){
+      p = document.createElement('div'); p.id = 'pet';
+      p.innerHTML = '<span></span>';
+      p.addEventListener('click', ()=>{
+        const h = document.createElement('span');
+        h.className = 'heart'; h.textContent = '💗';
+        p.appendChild(h); setTimeout(()=>h.remove(), 950);
+      });
+      document.body.appendChild(p);
+    }
+    p.querySelector('span:not(.heart)').textContent = a.pet;
+  } else if(p) p.remove();
+}
+
+function setAppearance(patch){
+  if(!Store.data.settings) Store.data.settings = {};
+  Store.data.settings.appearance = {...appearance(), ...patch};
+  Store.save();
+  applyAppearance();
+}
+
 /* ===== Profils : bascule et gestion ===== */
 function refreshProfileButton(){
   const el = document.getElementById('profName');
@@ -453,6 +532,34 @@ function openSettings(){
     <div class="modal">
       <h3>⚙️ Réglages</h3>
       <div class="card" style="background:var(--card2)">
+        <h2>🎨 Apparence — profil « ${esc(Store.active.nom)} »</h2>
+        <p class="small muted" style="margin:0 0 10px">Ton style te suit sur tous tes appareils. Chacun le sien 💅</p>
+        <div class="field"><label>Thème</label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+            ${THEMES.map(t=>`<button class="btn thm ${ (appearance().theme||'nuit')===t.id?'primary':''}" data-thm="${t.id}" style="display:flex;align-items:center;gap:8px">
+              <span style="width:22px;height:22px;border-radius:6px;background:${t.prev};flex:0 0 auto;border:1px solid rgba(255,255,255,.4)"></span>${t.nom}</button>`).join('')}
+          </div>
+        </div>
+        <div class="fieldrow" style="margin-top:8px">
+          <div class="field"><label>Couleur d'accent</label>
+            <div style="display:flex;gap:6px;align-items:center">
+              <input type="color" id="apAccent" value="${esc(appearance().accent||'#5385ed')}" style="min-height:44px;width:64px;padding:2px;background:var(--field);border:1px solid var(--line2);border-radius:10px">
+              <button class="btn" id="apAccentReset" title="Couleur du thème">↺</button>
+            </div>
+          </div>
+          <div class="field"><label>Compagnon</label>
+            <select id="apPet">
+              <option value="">— aucun —</option>
+              ${PETS.map(p=>`<option value="${p}" ${appearance().pet===p?'selected':''}>${p}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <label class="small" style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer">
+          <input type="checkbox" id="apBubbles" ${appearance().bubbles?'checked':''} style="min-height:0;width:20px;height:20px">
+          🫧 Bulles flottantes
+        </label>
+      </div>
+      <div class="card" style="background:var(--card2)">
         <h2>Synchronisation (propriétaire)</h2>
         <p class="small muted" style="margin:0 0 10px">Colle ton jeton GitHub pour enregistrer tes données
         dans le dépôt public — elles se synchronisent alors entre ton PC et ton téléphone.
@@ -502,6 +609,17 @@ function openSettings(){
     else { Sync.schedulePush(); alert('Écriture activée ✔ Tes données seront synchronisées.'); close(); }
   });
   bg.querySelector('#syncOff').addEventListener('click', ()=>{ Sync.cfg = null; Sync.setStatus('off'); close(); });
+  // --- apparence ---
+  bg.querySelectorAll('[data-thm]').forEach(b=>b.addEventListener('click', ()=>{
+    setAppearance({theme:b.dataset.thm});
+    bg.querySelectorAll('[data-thm]').forEach(x=>x.classList.toggle('primary', x===b));
+  }));
+  bg.querySelector('#apAccent').addEventListener('change', e=>setAppearance({accent:e.target.value}));
+  bg.querySelector('#apAccentReset').addEventListener('click', ()=>{
+    setAppearance({accent:null}); bg.querySelector('#apAccent').value = '#5385ed';
+  });
+  bg.querySelector('#apPet').addEventListener('change', e=>setAppearance({pet:e.target.value||null}));
+  bg.querySelector('#apBubbles').addEventListener('change', e=>setAppearance({bubbles:e.target.checked}));
   const optOut = bg.querySelector('#optOut');
   if(optOut) optOut.addEventListener('click', ()=>{
     if(!confirm('Cet appareil quittera la consultation et tiendra un suivi local vierge. Continuer ?')) return;
@@ -544,7 +662,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
   document.getElementById('btnSettings').addEventListener('click', openSettings);
   document.getElementById('btnProfile').addEventListener('click', openProfiles);
   document.addEventListener('profilechange', refreshProfileButton);
+  document.addEventListener('profilechange', applyAppearance);
+  document.addEventListener('storechange', applyAppearance);
   refreshProfileButton();
+  applyAppearance();
   showPage(localStorage.getItem('ob.lastPage') || 'salle');
   if(Sync.cfg) Sync.pull();
   else Sync.tryAutoRO();
