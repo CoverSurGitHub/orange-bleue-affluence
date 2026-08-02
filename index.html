@@ -2,595 +2,161 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Affluence — L'Orange Bleue Orgeval</title>
-<style>
-  :root{
-    --bg:#0f1024; --card:#181a3a; --line:#5385ed; --line2:#2b2e5e;
-    --text:#eef1ff; --muted:#9aa0c7; --accent:#ff7a1a; --good:#37c978; --warn:#ffb020;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text)}
-  .wrap{max-width:900px;margin:0 auto;padding:20px 16px 60px}
-  h1{font-size:1.25rem;margin:0 0 2px}
-  .sub{color:var(--muted);font-size:.85rem;margin-bottom:20px}
-  .live{display:flex;align-items:center;gap:18px;background:var(--card);border-radius:16px;padding:20px;margin-bottom:16px}
-  .live .num{font-size:3.4rem;font-weight:800;line-height:1}
-  .live .lbl{color:var(--muted);font-size:.8rem;text-transform:uppercase;letter-spacing:.05em}
-  .dot{width:10px;height:10px;border-radius:50%;background:var(--good);display:inline-block;margin-right:6px;box-shadow:0 0 0 0 rgba(55,201,120,.6);animation:pulse 2s infinite}
-  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(55,201,120,.5)}70%{box-shadow:0 0 0 10px rgba(55,201,120,0)}100%{box-shadow:0 0 0 0 rgba(55,201,120,0)}}
-  .tabs{display:flex;gap:8px;margin-bottom:12px}
-  .tab{flex:0 0 auto;background:#0f1130;border:1px solid var(--line2);color:var(--muted)}
-  .tab.active{background:var(--line);color:#fff;border-color:var(--line)}
-  .card{background:var(--card);border-radius:16px;padding:18px;margin-bottom:16px}
-  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:12px}
-  select,button{background:#0f1130;color:var(--text);border:1px solid var(--line2);border-radius:10px;padding:8px 12px;font-size:.9rem}
-  button{cursor:pointer}
-  .stats{display:flex;gap:22px;flex-wrap:wrap;color:var(--muted);font-size:.85rem}
-  .stats b{color:var(--text);font-size:1.05rem}
-  .seg{display:inline-flex;border:1px solid var(--line2);border-radius:10px;overflow:hidden;vertical-align:middle;margin-right:6px}
-  .seg-btn{border:0;border-radius:0;background:#0f1130;color:var(--muted);padding:8px 12px;font-size:.85rem}
-  .seg-btn.active{background:var(--line);color:#fff}
-  .chartwrap{position:relative;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
-  canvas{height:320px;display:block}
-  .tip{position:absolute;pointer-events:none;background:#0b0c22;border:1px solid var(--line);border-radius:8px;
-       padding:6px 9px;font-size:.8rem;white-space:nowrap;transform:translate(-50%,-115%);z-index:5;box-shadow:0 4px 14px rgba(0,0,0,.5)}
-  .tip b{color:var(--accent);font-size:.95rem}
-  .legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:12px}
-  .legend .li{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;color:var(--muted);cursor:pointer;user-select:none}
-  .legend .li.off{opacity:.35;text-decoration:line-through}
-  .legend .sw{width:12px;height:12px;border-radius:3px;flex:0 0 auto}
-  .calpop{position:absolute;right:0;top:calc(100% + 6px);z-index:20;background:#141631;border:1px solid var(--line2);
-          border-radius:12px;padding:12px;width:260px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
-  .cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
-  .cal-head b{font-size:.9rem;text-transform:capitalize}
-  .cal-nav{background:none;border:0;color:var(--muted);font-size:1.1rem;padding:2px 8px;cursor:pointer;border-radius:6px}
-  .cal-nav:hover{background:var(--line2);color:var(--text)}
-  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;text-align:center}
-  .cal-dow{color:var(--muted);font-size:.7rem;padding:2px 0}
-  .cal-day{position:relative;padding:6px 0;border-radius:8px;font-size:.82rem;cursor:pointer;color:var(--text);background:transparent;border:1px solid transparent}
-  .cal-day.empty{visibility:hidden;cursor:default}
-  .cal-day.nodata{color:#4b4f78;cursor:default}
-  .cal-day.hasdata:hover{background:var(--line2)}
-  .cal-day.selected{background:var(--line);color:#fff;font-weight:700}
-  .cal-day.today{border-color:var(--accent)}
-  .cal-day .dot2{position:absolute;bottom:2px;left:50%;transform:translateX(-50%);width:4px;height:4px;border-radius:50%;background:var(--accent)}
-  .empty{color:var(--muted);text-align:center;padding:40px 0}
-  a{color:var(--line)}
-  .foot{color:var(--muted);font-size:.75rem;text-align:center;margin-top:24px}
-</style>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0f1024" />
+<title>Ma salle & moi — Orgeval</title>
+<link rel="stylesheet" href="assets/styles.css" />
 </head>
 <body>
-<div class="wrap">
-  <h1>🏋️ Affluence — L'Orange Bleue Orgeval</h1>
-  <div class="sub">Capté toutes les 10 min · l'appli ne montre que l'instant présent, ici tu vois toute la journée et tu compares les jours.</div>
 
+<header class="hdr">
+  <div>
+    <h1>🏋️ Ma salle &amp; moi</h1>
+    <div class="sub">L'Orange Bleue Orgeval · <span id="syncBadge"></span></div>
+  </div>
+  <button class="iconbtn" id="btnSettings" title="Réglages">⚙️</button>
+</header>
+
+<!-- ===================== SALLE (affluence) ===================== -->
+<main class="page" id="page-salle">
   <div class="live">
     <div>
-      <div class="num" id="liveNum">–</div>
-      <div class="lbl"><span class="dot"></span><span id="liveWhen">chargement…</span></div>
+      <div class="num" id="sLiveNum">–</div>
+      <div class="lbl"><span class="dot"></span><span id="sLiveWhen">chargement…</span></div>
     </div>
     <div style="flex:1"></div>
     <div style="text-align:right">
       <div class="lbl">Pic du jour</div>
-      <div style="font-size:1.6rem;font-weight:700" id="peakNum">–</div>
-      <div class="lbl" id="peakWhen"></div>
+      <div style="font-size:1.5rem;font-weight:700" id="sPeak">–</div>
+      <div class="lbl" id="sPeakWhen"></div>
     </div>
   </div>
 
   <div class="tabs">
-    <button class="tab active" id="tabMeasured">📏 Mesuré</button>
-    <button class="tab" id="tabCompare">🔀 Comparer</button>
+    <button class="tab active" id="sTabMeasured">📏 Mesuré</button>
+    <button class="tab" id="sTabCompare">🔀 Comparer</button>
   </div>
 
   <div class="card">
     <div class="row">
       <div class="stats">
-        <span>Moyenne <b id="stAvg">–</b></span>
-        <span>Max <b id="stMax">–</b></span>
-        <span id="stNwrap">Mesures <b id="stN">–</b></span>
+        <span>Moy <b id="sAvg">–</b></span>
+        <span>Max <b id="sMax">–</b></span>
+        <span id="sNwrap">Mesures <b id="sN">–</b></span>
       </div>
-      <div>
-        <span id="granWrap" class="seg">
-          <button class="seg-btn active" id="granHours">Heures</button>
-          <button class="seg-btn" id="granMin">Minutes</button>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <span id="sGranWrap" class="seg">
+          <button class="seg-btn active" id="sGranH">Heures</button>
+          <button class="seg-btn" id="sGranM">Minutes</button>
         </span>
-        <span class="calwrap" id="calWrap" style="position:relative;display:inline-block">
-          <button id="dayBtn">📅 <span id="dayBtnLabel">–</span></button>
-          <div id="dayCal" class="calpop" style="display:none"></div>
+        <span class="calwrap" id="sCalWrap">
+          <button class="btn" id="sDayBtn">📅 <span id="sDayLabel">–</span></button>
+          <div id="sDayCal" class="calpop" style="display:none"></div>
         </span>
-        <select id="cmpType" style="display:none" title="Type de comparaison">
+        <select id="sCmpType" style="display:none">
           <option value="days">Jours d'une semaine</option>
           <option value="weekday">Même jour, plusieurs semaines</option>
           <option value="weeks">Semaines entières</option>
         </select>
-        <select id="weekSel" style="display:none"></select>
-        <select id="cmpWeekdaySel" style="display:none"></select>
-        <button id="refresh">↻</button>
+        <select id="sWeekSel" style="display:none"></select>
+        <select id="sCmpWd" style="display:none"></select>
+        <button class="btn" id="sRefresh" title="Actualiser">↻</button>
       </div>
     </div>
-    <div class="chartwrap" id="chartwrap">
-      <canvas id="chart"></canvas>
-      <div id="tip" class="tip" style="display:none"></div>
+    <div class="chartwrap" id="sChartWrap">
+      <canvas class="chart" id="sChart"></canvas>
+      <div id="sTip" class="tip" style="display:none"></div>
     </div>
-    <div class="empty" id="empty" style="display:none">Pas encore de données pour ce jour.</div>
-    <div id="legend" class="legend" style="display:none"></div>
-    <div id="cmpNote" style="display:none;color:var(--muted);font-size:.78rem;margin-top:8px">
-      Comparaison construite sur <b>tes mesures réelles</b>. Elle s'enrichit à mesure que les jours et semaines s'accumulent.
+    <div class="empty" id="sEmpty" style="display:none"></div>
+    <div id="sLegend" class="legend" style="display:none"></div>
+    <div id="sCmpNote" class="small muted" style="display:none;margin-top:8px">
+      Comparaison construite sur tes mesures réelles — elle s'enrichit chaque semaine.
+    </div>
+  </div>
+  <div class="foot">Affluence : API publique L'Orange Bleue · capté toutes les 10 min · <span id="sLastUpd"></span></div>
+</main>
+
+<!-- ===================== POIDS ===================== -->
+<main class="page" id="page-poids">
+  <div class="card">
+    <h2>⚖️ Nouvelle pesée</h2>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input type="number" id="pKg" inputmode="decimal" step="0.1" min="20" max="400" placeholder="Poids (kg)" style="flex:1;min-width:110px">
+      <span class="calwrap">
+        <button class="btn" id="pDayBtn">📅 <span id="pDayLabel">–</span></button>
+        <div id="pDayCal" class="calpop" style="display:none"></div>
+      </span>
+      <button class="btn primary" id="pSave">Enregistrer</button>
     </div>
   </div>
 
-  <div class="foot">Source : API publique L'Orange Bleue · <span id="lastUpd"></span></div>
-</div>
+  <div class="tiles" id="pTiles"></div>
 
-<script>
-const TZ = 'Europe/Paris';
-const OPEN_HOUR = 6, CLOSE_HOUR = 23; // fenêtre affichée
-let ROWS = []; // {t, count, dayKey, minOfDay, hhmm, wd(0=lun..6=dim), weekKey}
-let MODE = 'measured'; // 'measured' | 'compare'
-let GRAN = 'hours';    // 'hours' | 'min' — granularité de l'axe temps (onglet Mesuré)
-let CMP = 'days';      // 'days' | 'weekday' | 'weeks'
-let HIT = [];          // points cliquables {x,y,count,hhmm,serie} en px CSS relatifs au canvas
-let HIDDEN = new Set();// séries masquées via la légende
-const PX_PER_MIN = 5;  // largeur en mode Minutes (scroll horizontal)
-
-const WD_SHORT = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
-const WD_LONG  = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche'];
-// palette distincte pour les courbes superposées
-const PALETTE = ['#5385ed','#ff7a1a','#37c978','#e34cc0','#ffd23f','#2ec5c5','#f2545b','#9b7bff','#a0a7c9','#7ad151'];
-
-function wdFromDayKey(dk){ const [y,m,d]=dk.split('-').map(Number); return (new Date(Date.UTC(y,m-1,d)).getUTCDay()+6)%7; }
-function isoWeek(dk){
-  const [y,m,d]=dk.split('-').map(Number);
-  const dt=new Date(Date.UTC(y,m-1,d));
-  const day=(dt.getUTCDay()+6)%7; dt.setUTCDate(dt.getUTCDate()-day+3);      // jeudi de la semaine
-  const firstThu=new Date(Date.UTC(dt.getUTCFullYear(),0,4));
-  const fd=(firstThu.getUTCDay()+6)%7; firstThu.setUTCDate(firstThu.getUTCDate()-fd+3);
-  const w=1+Math.round((dt-firstThu)/(7*864e5));
-  return dt.getUTCFullYear()+'-S'+String(w).padStart(2,'0');
-}
-
-const fmtDay = new Intl.DateTimeFormat('fr-CA', {timeZone:TZ, year:'numeric', month:'2-digit', day:'2-digit'});
-const fmtTime = new Intl.DateTimeFormat('fr-FR', {timeZone:TZ, hour:'2-digit', minute:'2-digit'});
-const fmtDayLabel = new Intl.DateTimeFormat('fr-FR', {timeZone:TZ, weekday:'long', day:'numeric', month:'long'});
-
-function partsInTZ(date){
-  const p = {};
-  for(const {type,value} of new Intl.DateTimeFormat('en-GB',{timeZone:TZ,hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(date)){
-    p[type]=value;
-  }
-  return {h:+p.hour, m:+p.minute};
-}
-
-async function load(){
-  const res = await fetch('data.csv?_=' + Date.now());
-  const text = await res.text();
-  const lines = text.trim().split(/\r?\n/).slice(1);
-  ROWS = lines.filter(Boolean).map(l => {
-    const [ts, c] = l.split(',');
-    const t = new Date(ts);
-    const {h,m} = partsInTZ(t);
-    const dayKey = fmtDay.format(t);
-    return { t, count:+c, dayKey, minOfDay:h*60+m, hhmm:fmtTime.format(t), wd:wdFromDayKey(dayKey), weekKey:isoWeek(dayKey) };
-  }).filter(r => Number.isFinite(r.count));
-
-  buildDaySelector();
-  buildCompareSelectors();
-  render();
-  document.getElementById('lastUpd').textContent = 'MàJ ' + new Date().toLocaleTimeString('fr-FR');
-}
-
-function buildCompareSelectors(){
-  // Semaines présentes (pour "Jours d'une semaine")
-  const weeks = [...new Set(ROWS.map(r=>r.weekKey))].sort().reverse();
-  const wSel = document.getElementById('weekSel'); const wPrev = wSel.value;
-  wSel.innerHTML='';
-  for(const wk of weeks){ const o=document.createElement('option'); o.value=wk; o.textContent='Semaine '+wk.split('-S')[1]+' ('+wk.split('-')[0]+')'; wSel.appendChild(o); }
-  if(weeks.includes(wPrev)) wSel.value=wPrev;
-
-  // Jours de semaine présents (pour "Même jour, plusieurs semaines")
-  const wds = [...new Set(ROWS.map(r=>r.wd))].sort((a,b)=>a-b);
-  const dSel = document.getElementById('cmpWeekdaySel'); const dPrev = dSel.value;
-  dSel.innerHTML='';
-  for(const wd of wds){ const o=document.createElement('option'); o.value=wd; o.textContent=WD_LONG[wd]; dSel.appendChild(o); }
-  if([...dSel.options].some(o=>o.value===dPrev)) dSel.value=dPrev;
-}
-
-function setMode(m){
-  MODE = m;
-  const measured = m==='measured', compare = m==='compare';
-  document.getElementById('tabMeasured').classList.toggle('active', measured);
-  document.getElementById('tabCompare').classList.toggle('active', compare);
-  document.getElementById('calWrap').style.display = measured ? '' : 'none';
-  if(!measured) toggleCalendar(false);
-  document.getElementById('granWrap').style.display = measured ? '' : 'none';
-  document.getElementById('stNwrap').style.display = measured ? '' : 'none';
-  document.getElementById('cmpType').style.display = compare ? '' : 'none';
-  document.getElementById('cmpNote').style.display = compare ? '' : 'none';
-  hideTip(); HIDDEN.clear();
-  updateCmpSelectors();
-  render();
-}
-
-// Affiche le bon sélecteur de contexte selon le type de comparaison
-function updateCmpSelectors(){
-  const compare = MODE==='compare';
-  document.getElementById('weekSel').style.display       = (compare && CMP==='days')    ? '' : 'none';
-  document.getElementById('cmpWeekdaySel').style.display = (compare && CMP==='weekday') ? '' : 'none';
-}
-
-function setCmp(type){ CMP = type; HIDDEN.clear(); hideTip(); updateCmpSelectors(); render(); }
-
-function setGran(g){
-  GRAN = g;
-  document.getElementById('granHours').classList.toggle('active', g==='hours');
-  document.getElementById('granMin').classList.toggle('active', g==='min');
-  hideTip();
-  render();
-}
-
-function hideTip(){ const t=document.getElementById('tip'); if(t) t.style.display='none'; }
-
-// ---- Calendrier (remplace le menu déroulant de jour) ----
-let SELECTED_DAY = null;   // 'YYYY-MM-DD' (clé locale Paris)
-let CAL_VIEW = null;       // {y, m} mois affiché dans le popup
-
-function buildDaySelector(){
-  const days = [...new Set(ROWS.map(r=>r.dayKey))].sort();
-  if(!days.length) return;
-  if(!SELECTED_DAY || !days.includes(SELECTED_DAY)) SELECTED_DAY = days[days.length-1];
-  const [y,m] = SELECTED_DAY.split('-').map(Number);
-  if(!CAL_VIEW) CAL_VIEW = {y, m};
-  updateDayBtnLabel();
-}
-
-function updateDayBtnLabel(){
-  const sample = ROWS.find(r=>r.dayKey===SELECTED_DAY);
-  document.getElementById('dayBtnLabel').textContent = sample ? fmtDayLabel.format(sample.t) : (SELECTED_DAY || '–');
-}
-
-function todayKeyTZ(){
-  const p = {};
-  for(const {type,value} of new Intl.DateTimeFormat('en-CA',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date())){
-    p[type]=value;
-  }
-  return `${p.year}-${p.month}-${p.day}`;
-}
-
-function toggleCalendar(open){
-  const pop = document.getElementById('dayCal');
-  const willOpen = open!=null ? open : (pop.style.display==='none');
-  pop.style.display = willOpen ? 'block' : 'none';
-  if(willOpen){
-    const [y,m] = SELECTED_DAY.split('-').map(Number);
-    CAL_VIEW = {y, m};
-    renderCalendar();
-  }
-}
-
-function renderCalendar(){
-  const pop = document.getElementById('dayCal');
-  const {y, m} = CAL_VIEW; // m = 1..12
-  const dataDays = new Set(ROWS.map(r=>r.dayKey));
-  const today = todayKeyTZ();
-  const monthLabel = new Intl.DateTimeFormat('fr-FR',{month:'long', year:'numeric'}).format(new Date(y, m-1, 1));
-
-  const firstDow = (new Date(y, m-1, 1).getDay()+6)%7; // 0=lundi
-  const daysInMonth = new Date(y, m, 0).getDate();
-
-  let cells = '';
-  for(let i=0;i<firstDow;i++) cells += '<div class="cal-day empty"></div>';
-  for(let d=1; d<=daysInMonth; d++){
-    const key = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const has = dataDays.has(key);
-    const cls = ['cal-day'];
-    if(!has) cls.push('nodata'); else cls.push('hasdata');
-    if(key===SELECTED_DAY) cls.push('selected');
-    if(key===today) cls.push('today');
-    cells += `<div class="${cls.join(' ')}" data-day="${has?key:''}">${d}${has&&key!==SELECTED_DAY?'<span class="dot2"></span>':''}</div>`;
-  }
-
-  pop.innerHTML = `
-    <div class="cal-head">
-      <button class="cal-nav" id="calPrev" type="button">‹</button>
-      <b>${monthLabel}</b>
-      <button class="cal-nav" id="calNext" type="button">›</button>
+  <div class="card">
+    <div class="row">
+      <span class="seg" id="pPeriod">
+        <button class="seg-btn active" data-p="30">30 j</button>
+        <button class="seg-btn" data-p="90">90 j</button>
+        <button class="seg-btn" data-p="0">Tout</button>
+      </span>
+      <button class="btn" id="pGoal">🎯 Objectif</button>
     </div>
-    <div class="cal-grid">
-      ${['L','M','M','J','V','S','D'].map(d=>`<div class="cal-dow">${d}</div>`).join('')}
-      ${cells}
-    </div>`;
+    <div class="chartwrap" id="pChartWrap">
+      <canvas class="chart" id="pChart"></canvas>
+      <div id="pTip" class="tip" style="display:none"></div>
+    </div>
+    <div class="empty" id="pEmpty" style="display:none">Aucune pesée — enregistre la première ci-dessus 💪</div>
+    <div class="legend" style="margin-top:8px">
+      <span class="li"><span class="sw" style="background:#5385ed"></span>Pesées</span>
+      <span class="li"><span class="sw" style="background:#37c978"></span>Moyenne 7 j</span>
+      <span class="li"><span class="sw" style="background:#ff7a1a"></span>Objectif</span>
+    </div>
+  </div>
 
-  pop.querySelector('#calPrev').addEventListener('click', ()=>{ CAL_VIEW.m--; if(CAL_VIEW.m<1){CAL_VIEW.m=12;CAL_VIEW.y--;} renderCalendar(); });
-  pop.querySelector('#calNext').addEventListener('click', ()=>{ CAL_VIEW.m++; if(CAL_VIEW.m>12){CAL_VIEW.m=1;CAL_VIEW.y++;} renderCalendar(); });
-  pop.querySelectorAll('.cal-day.hasdata').forEach(el=>{
-    el.addEventListener('click', ()=>{
-      SELECTED_DAY = el.dataset.day;
-      updateDayBtnLabel();
-      toggleCalendar(false);
-      render();
-    });
-  });
-}
+  <div class="card">
+    <h2>Dernières pesées</h2>
+    <div class="list" id="pList"></div>
+  </div>
+</main>
 
-document.addEventListener('click', e=>{
-  const wrap = document.getElementById('calWrap');
-  if(wrap && !wrap.contains(e.target)) toggleCalendar(false);
-});
+<!-- ===================== REPAS ===================== -->
+<main class="page" id="page-repas">
+  <div class="row" style="padding:0 2px">
+    <div class="tabs" style="margin:0">
+      <button class="tab active" id="rTabJournal">📔 Journal</button>
+      <button class="tab" id="rTabRecettes">📖 Recettes</button>
+    </div>
+    <span class="calwrap" id="rCalWrap">
+      <button class="btn" id="rDayBtn">📅 <span id="rDayLabel">–</span></button>
+      <div id="rDayCal" class="calpop" style="display:none"></div>
+    </span>
+  </div>
+  <div id="rJournal"></div>
+  <div id="rRecettes" style="display:none"></div>
+  <div class="foot">Valeurs nutritionnelles : table CIQUAL 2020 — ANSES (officielle) · calculs pour 100 g</div>
+</main>
 
-function render(){
-  // Live = dernière mesure globale (affiché dans les deux modes)
-  const last = ROWS[ROWS.length-1];
-  document.getElementById('liveNum').textContent = last ? last.count : '–';
-  document.getElementById('liveWhen').textContent = last ? ('En direct · ' + last.hhmm) : '—';
+<!-- ===================== TDEE ===================== -->
+<main class="page" id="page-tdee">
+  <div class="card">
+    <h2>🔥 Mes besoins (TDEE)</h2>
+    <div id="tForm"></div>
+  </div>
+  <div id="tRes"></div>
+</main>
 
-  if(MODE === 'compare'){ renderCompare(); return; }
+<!-- ===================== NAV ===================== -->
+<nav class="nav">
+  <button id="nav-salle"><span class="ico">🏋️</span>Salle</button>
+  <button id="nav-poids"><span class="ico">⚖️</span>Poids</button>
+  <button id="nav-repas"><span class="ico">🍽️</span>Repas</button>
+  <button id="nav-tdee"><span class="ico">🔥</span>TDEE</button>
+</nav>
 
-  document.getElementById('legend').style.display = 'none';
-  const day = SELECTED_DAY || (ROWS.length ? ROWS[ROWS.length-1].dayKey : null);
-  const pts = ROWS.filter(r => r.dayKey === day).sort((a,b)=>a.minOfDay-b.minOfDay);
-
-  const empty = document.getElementById('empty');
-  const canvas = document.getElementById('chart');
-  if(!pts.length){ empty.style.display='block'; canvas.style.display='none';
-    ['stAvg','stMax','stN','peakNum'].forEach(id=>document.getElementById(id).textContent='–');
-    document.getElementById('peakWhen').textContent='';
-    return;
-  }
-  empty.style.display='none'; canvas.style.display='block';
-
-  const counts = pts.map(p=>p.count);
-  const max = Math.max(...counts);
-  const avg = Math.round(counts.reduce((a,b)=>a+b,0)/counts.length);
-  const peak = pts[counts.indexOf(max)];
-  document.getElementById('stAvg').textContent = avg;
-  document.getElementById('stMax').textContent = max;
-  document.getElementById('stN').textContent = pts.length;
-  document.getElementById('peakNum').textContent = max;
-  document.getElementById('peakWhen').textContent = 'vers ' + peak.hhmm;
-
-  drawChart(canvas, pts, max);
-}
-
-function fmtHM(m){ const h=Math.floor(m/60), mm=m%60; return h+'h'+(mm?String(mm).padStart(2,'0'):''); }
-
-function drawChart(canvas, pts, maxCount){
-  const lastP = pts[pts.length-1];
-  const containerW = document.getElementById('chartwrap').clientWidth || canvas.clientWidth || 320;
-
-  // Fenêtre temporelle + largeur selon la granularité
-  let minX, maxX, W;
-  if(GRAN === 'min'){
-    minX = Math.max(OPEN_HOUR*60, pts[0].minOfDay - 10);
-    maxX = Math.min(CLOSE_HOUR*60, lastP.minOfDay + 10);
-    if(maxX - minX < 30) maxX = minX + 30;               // évite un axe écrasé si peu de points
-    W = Math.max(containerW, Math.round((maxX - minX) * PX_PER_MIN));
-  } else {
-    minX = OPEN_HOUR*60; maxX = CLOSE_HOUR*60; W = containerW;
-  }
-  const H = 320;
-
-  const dpr = window.devicePixelRatio || 1;
-  canvas.style.width = W + 'px';
-  canvas.width = W*dpr; canvas.height = H*dpr;
-  const ctx = canvas.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0);
-  ctx.clearRect(0,0,W,H);
-
-  const padL=36, padR=14, padT=16, padB=26;
-  const x0=padL, x1=W-padR, y0=H-padB, y1=padT;
-  const yMax = Math.max(5, Math.ceil(maxCount*1.15));
-  const sx = m => x0 + (x1-x0)*(m-minX)/(maxX-minX);
-  const sy = c => y0 + (y1-y0)*(c/yMax);
-
-  // grille + labels Y
-  ctx.strokeStyle = '#2b2e5e'; ctx.fillStyle = '#9aa0c7'; ctx.font = '11px system-ui'; ctx.lineWidth=1;
-  const yStep = niceStep(yMax);
-  for(let v=0; v<=yMax; v+=yStep){
-    const y=sy(v); ctx.beginPath(); ctx.moveTo(x0,y); ctx.lineTo(x1,y); ctx.stroke();
-    ctx.fillText(String(v), 8, y+4);
-  }
-  // labels X
-  ctx.textAlign='center';
-  const step = GRAN==='min' ? 30 : 180; // 30 min ou 3 h
-  const start = Math.ceil(minX/step)*step;
-  for(let m=start; m<=maxX; m+=step){ ctx.fillText(fmtHM(m), sx(m), H-8); }
-  ctx.textAlign='left';
-
-  // aire
-  ctx.beginPath();
-  pts.forEach((p,i)=>{ const X=sx(p.minOfDay),Y=sy(p.count); i?ctx.lineTo(X,Y):ctx.moveTo(X,Y); });
-  ctx.lineTo(sx(lastP.minOfDay), y0); ctx.lineTo(sx(pts[0].minOfDay), y0); ctx.closePath();
-  const grad = ctx.createLinearGradient(0,y1,0,y0);
-  grad.addColorStop(0,'rgba(83,133,237,.45)'); grad.addColorStop(1,'rgba(83,133,237,0)');
-  ctx.fillStyle=grad; ctx.fill();
-
-  // ligne
-  ctx.beginPath();
-  pts.forEach((p,i)=>{ const X=sx(p.minOfDay),Y=sy(p.count); i?ctx.lineTo(X,Y):ctx.moveTo(X,Y); });
-  ctx.strokeStyle='#5385ed'; ctx.lineWidth=2; ctx.stroke();
-
-  // un point par mesure + mémorisation pour le clic
-  HIT = [];
-  const rPt = GRAN==='min' ? 3.2 : (pts.length>120 ? 1.6 : 2.6);
-  pts.forEach((p,i)=>{
-    const X=sx(p.minOfDay), Y=sy(p.count);
-    const isLast = i===pts.length-1;
-    ctx.fillStyle = isLast ? '#ff7a1a' : '#a9c1f5';
-    ctx.beginPath(); ctx.arc(X, Y, isLast?4:rPt, 0, 7); ctx.fill();
-    HIT.push({x:X, y:Y, count:p.count, hhmm:p.hhmm});
-  });
-}
-
-// ---- Onglet Comparer : superpose plusieurs courbes issues de tes vraies mesures ----
-function renderCompare(){
-  const empty = document.getElementById('empty');
-  const canvas = document.getElementById('chart');
-  const legend = document.getElementById('legend');
-
-  let series, xMin, xMax, xTicks, seps=[];
-  if(CMP === 'weeks'){
-    // Semaines entières : axe Lun→Dim, une courbe par semaine
-    xMin = OPEN_HOUR*60; xMax = 6*1440 + CLOSE_HOUR*60;
-    xTicks = WD_SHORT.map((lab,i)=>({x:i*1440 + (OPEN_HOUR+ (CLOSE_HOUR-OPEN_HOUR)/2)*60, label:lab}));
-    for(let i=1;i<7;i++) seps.push(i*1440);
-    const weeks = [...new Set(ROWS.map(r=>r.weekKey))].sort();
-    series = weeks.map((wk,i)=>({
-      label:'Sem. '+wk.split('-S')[1], color:PALETTE[i%PALETTE.length],
-      pts: ROWS.filter(r=>r.weekKey===wk).sort((a,b)=> (a.wd-b.wd)||(a.minOfDay-b.minOfDay))
-              .map(r=>({x:r.wd*1440+r.minOfDay, val:r.count, hhmm:WD_SHORT[r.wd]+' '+r.hhmm}))
-    }));
-  } else if(CMP === 'weekday'){
-    // Même jour de semaine, plusieurs semaines
-    xMin = OPEN_HOUR*60; xMax = CLOSE_HOUR*60;
-    xTicks = xHourTicks(xMin,xMax,3);
-    const wd = +document.getElementById('cmpWeekdaySel').value;
-    const rows = ROWS.filter(r=>r.wd===wd);
-    const weeks = [...new Set(rows.map(r=>r.weekKey))].sort();
-    series = weeks.map((wk,i)=>({
-      label:'Sem. '+wk.split('-S')[1], color:PALETTE[i%PALETTE.length],
-      pts: rows.filter(r=>r.weekKey===wk).sort((a,b)=>a.minOfDay-b.minOfDay)
-              .map(r=>({x:r.minOfDay, val:r.count, hhmm:r.hhmm}))
-    }));
-  } else {
-    // Jours d'une semaine : 7 courbes (lun→dim) de la semaine choisie
-    xMin = OPEN_HOUR*60; xMax = CLOSE_HOUR*60;
-    xTicks = xHourTicks(xMin,xMax,3);
-    const wk = document.getElementById('weekSel').value;
-    const rows = ROWS.filter(r=>r.weekKey===wk);
-    const wds = [...new Set(rows.map(r=>r.wd))].sort((a,b)=>a-b);
-    series = wds.map(wd=>({
-      label:WD_SHORT[wd], color:PALETTE[wd],
-      pts: rows.filter(r=>r.wd===wd).sort((a,b)=>a.minOfDay-b.minOfDay)
-              .map(r=>({x:r.minOfDay, val:r.count, hhmm:r.hhmm}))
-    }));
-  }
-
-  series = series.filter(s=>s.pts.length);
-  if(!series.length){
-    empty.textContent = 'Pas encore assez de données pour cette comparaison.'; empty.style.display='block';
-    canvas.style.display='none'; legend.style.display='none';
-    ['stAvg','stMax','peakNum'].forEach(id=>document.getElementById(id).textContent='–');
-    document.getElementById('peakWhen').textContent='';
-    return;
-  }
-  empty.style.display='none'; canvas.style.display='block';
-
-  // stats globales sur les séries visibles
-  const visible = series.filter(s=>!HIDDEN.has(s.label));
-  const allVals = visible.flatMap(s=>s.pts.map(p=>p.val));
-  const max = allVals.length?Math.max(...allVals):0;
-  const avg = allVals.length?Math.round(allVals.reduce((a,b)=>a+b,0)/allVals.length):0;
-  document.getElementById('stAvg').textContent = avg;
-  document.getElementById('stMax').textContent = max;
-  document.getElementById('peakNum').textContent = max;
-  document.getElementById('peakWhen').textContent = visible.length+' courbe'+(visible.length>1?'s':'');
-
-  drawMulti(canvas, series, xMin, xMax, xTicks, seps);
-  renderLegend(series);
-}
-
-function xHourTicks(xMin,xMax,stepH){
-  const t=[]; const step=stepH*60; const start=Math.ceil(xMin/step)*step;
-  for(let m=start;m<=xMax;m+=step) t.push({x:m, label:fmtHM(m)});
-  return t;
-}
-
-function drawMulti(canvas, series, xMin, xMax, xTicks, seps){
-  HIT = []; hideTip();
-  canvas.style.width = '100%';
-  const dpr = window.devicePixelRatio || 1;
-  const W = canvas.clientWidth, H = 320;
-  canvas.width = W*dpr; canvas.height = H*dpr;
-  const ctx = canvas.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
-
-  const padL=32, padR=12, padT=16, padB=26;
-  const x0=padL, x1=W-padR, y0=H-padB, y1=padT;
-  const visible = series.filter(s=>!HIDDEN.has(s.label));
-  const maxVal = Math.max(5, ...visible.flatMap(s=>s.pts.map(p=>p.val)));
-  const yMax = Math.ceil(maxVal*1.15);
-  const sx = x => x0 + (x1-x0)*(x-xMin)/(xMax-xMin);
-  const sy = v => y0 + (y1-y0)*(v/yMax);
-
-  // grille Y
-  ctx.strokeStyle='#2b2e5e'; ctx.fillStyle='#9aa0c7'; ctx.font='11px system-ui'; ctx.lineWidth=1;
-  const yStep=niceStep(yMax);
-  for(let v=0; v<=yMax; v+=yStep){ const y=sy(v); ctx.beginPath(); ctx.moveTo(x0,y); ctx.lineTo(x1,y); ctx.stroke(); ctx.fillText(String(v),6,y+4); }
-  // séparateurs de jours (mode semaines entières)
-  ctx.strokeStyle='#3a3e73';
-  for(const s of seps){ const x=sx(s); ctx.beginPath(); ctx.moveTo(x,y1); ctx.lineTo(x,y0); ctx.stroke(); }
-  // labels X
-  ctx.textAlign='center'; ctx.fillStyle='#9aa0c7';
-  for(const t of xTicks){ ctx.fillText(t.label, sx(t.x), H-8); }
-  ctx.textAlign='left';
-
-  // courbes
-  for(const s of series){
-    if(HIDDEN.has(s.label)) continue;
-    ctx.beginPath();
-    s.pts.forEach((p,i)=>{ const X=sx(p.x),Y=sy(p.val); i?ctx.lineTo(X,Y):ctx.moveTo(X,Y); });
-    ctx.strokeStyle=s.color; ctx.lineWidth=2; ctx.stroke();
-    const rPt = s.pts.length>120 ? 1.5 : 2.4;
-    for(const p of s.pts){ const X=sx(p.x),Y=sy(p.val); ctx.fillStyle=s.color; ctx.beginPath(); ctx.arc(X,Y,rPt,0,7); ctx.fill();
-      HIT.push({x:X,y:Y,count:p.val,hhmm:p.hhmm,serie:s.label}); }
-  }
-}
-
-function renderLegend(series){
-  const el = document.getElementById('legend');
-  el.innerHTML=''; el.style.display='flex';
-  for(const s of series){
-    const li=document.createElement('span');
-    li.className='li'+(HIDDEN.has(s.label)?' off':'');
-    li.innerHTML='<span class="sw" style="background:'+s.color+'"></span>'+s.label;
-    li.addEventListener('click',()=>{ if(HIDDEN.has(s.label)) HIDDEN.delete(s.label); else HIDDEN.add(s.label); render(); });
-    el.appendChild(li);
-  }
-}
-
-function niceStep(max){
-  if(max<=10) return 2;
-  if(max<=25) return 5;
-  if(max<=60) return 10;
-  return 20;
-}
-
-document.getElementById('dayBtn').addEventListener('click', e=>{ e.stopPropagation(); toggleCalendar(); });
-document.getElementById('cmpType').addEventListener('change', e=>setCmp(e.target.value));
-document.getElementById('weekSel').addEventListener('change', render);
-document.getElementById('cmpWeekdaySel').addEventListener('change', render);
-document.getElementById('tabMeasured').addEventListener('click', ()=>setMode('measured'));
-document.getElementById('tabCompare').addEventListener('click', ()=>setMode('compare'));
-document.getElementById('granHours').addEventListener('click', ()=>setGran('hours'));
-document.getElementById('granMin').addEventListener('click', ()=>setGran('min'));
-document.getElementById('refresh').addEventListener('click', load);
-
-// Bulle au survol / tap : affiche l'heure exacte et le nombre de visiteurs du point le plus proche
-function showTipAt(clientX, clientY){
-  if(!HIT.length){ hideTip(); return; }
-  const canvas = document.getElementById('chart');
-  const r = canvas.getBoundingClientRect();
-  const px = clientX - r.left, py = (clientY!=null) ? clientY - r.top : null;
-  let best=null, bd=Infinity;
-  for(const h of HIT){
-    // en mode Comparer, on tient compte de X et Y pour viser la bonne courbe
-    const d = (py!=null && MODE==='compare') ? Math.hypot(h.x-px, h.y-py) : Math.abs(h.x-px);
-    if(d<bd){ bd=d; best=h; }
-  }
-  if(!best) return;
-  const tip = document.getElementById('tip');
-  const who = best.serie ? '<span style="opacity:.7">'+best.serie+'</span> · ' : '';
-  tip.innerHTML = who + best.hhmm + ' · <b>' + best.count + '</b> visiteur' + (best.count>1?'s':'');
-  tip.style.left = best.x + 'px';
-  tip.style.top  = best.y + 'px';
-  tip.style.display = 'block';
-}
-const wrap = document.getElementById('chartwrap');
-wrap.addEventListener('pointermove', e => { if(e.pointerType==='mouse') showTipAt(e.clientX, e.clientY); });
-wrap.addEventListener('pointerdown', e => showTipAt(e.clientX, e.clientY)); // tap mobile
-wrap.addEventListener('pointerleave', e => { if(e.pointerType==='mouse') hideTip(); });
-
-load();
-setInterval(load, 60000); // rafraîchit toutes les minutes
-</script>
+<script src="assets/app.js"></script>
+<script src="assets/salle.js"></script>
+<script src="assets/poids.js"></script>
+<script src="assets/repas.js"></script>
+<script src="assets/tdee.js"></script>
 </body>
 </html>

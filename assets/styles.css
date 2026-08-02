@@ -1,0 +1,167 @@
+/* ===== Base — mobile-first (référence 375px) ===== */
+:root{
+  --bg:#0f1024; --card:#181a3a; --card2:#141631; --line:#5385ed; --line2:#2b2e5e;
+  --text:#eef1ff; --muted:#9aa0c7; --accent:#ff7a1a; --good:#37c978; --warn:#ffb020; --bad:#f2545b;
+  --nav-h:60px;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);
+     padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom))}
+button,select,input{font-family:inherit}
+a{color:var(--line)}
+
+/* ===== Header ===== */
+.hdr{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 6px;max-width:900px;margin:0 auto}
+.hdr h1{font-size:1.05rem;margin:0;font-weight:800}
+.hdr .sub{color:var(--muted);font-size:.72rem;margin-top:2px}
+.iconbtn{background:var(--card2);border:1px solid var(--line2);color:var(--muted);border-radius:10px;
+         min-width:44px;min-height:44px;font-size:1.1rem;cursor:pointer}
+.iconbtn:active{background:var(--line2)}
+
+/* ===== Navigation bas (mobile) ===== */
+.nav{position:fixed;bottom:0;left:0;right:0;z-index:50;display:flex;background:#0c0d20;
+     border-top:1px solid var(--line2);padding-bottom:env(safe-area-inset-bottom)}
+.nav button{flex:1;background:none;border:0;color:var(--muted);padding:8px 0 6px;font-size:.68rem;cursor:pointer;
+            display:flex;flex-direction:column;align-items:center;gap:2px;min-height:var(--nav-h)}
+.nav button .ico{font-size:1.35rem;line-height:1}
+.nav button.active{color:var(--line)}
+.nav button.active .ico{transform:translateY(-1px)}
+
+/* ===== Pages / sections ===== */
+.page{display:none;max-width:900px;margin:0 auto;padding:8px 12px 24px}
+.page.active{display:block}
+.card{background:var(--card);border-radius:16px;padding:14px;margin-bottom:12px}
+.card h2{font-size:.95rem;margin:0 0 10px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-bottom:10px}
+.muted{color:var(--muted)}
+.small{font-size:.78rem}
+.center{text-align:center}
+
+/* ===== Contrôles ===== */
+select,input[type=text],input[type=number],input[type=search],input[type=password]{
+  background:#0f1130;color:var(--text);border:1px solid var(--line2);border-radius:10px;
+  padding:10px 12px;font-size:.95rem;min-height:44px;max-width:100%}
+input:focus,select:focus{outline:2px solid var(--line);outline-offset:-1px}
+button.btn{background:#0f1130;color:var(--text);border:1px solid var(--line2);border-radius:10px;
+           padding:10px 14px;font-size:.9rem;cursor:pointer;min-height:44px}
+button.btn.primary{background:var(--line);border-color:var(--line);color:#fff;font-weight:700}
+button.btn.danger{color:var(--bad);border-color:#5c2b35}
+button.btn:disabled{opacity:.45;cursor:default}
+.seg{display:inline-flex;border:1px solid var(--line2);border-radius:10px;overflow:hidden;vertical-align:middle}
+.seg-btn{border:0;border-radius:0;background:#0f1130;color:var(--muted);padding:10px 12px;font-size:.85rem;cursor:pointer;min-height:44px}
+.seg-btn.active{background:var(--line);color:#fff}
+
+/* ===== Stats / tuiles ===== */
+.stats{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:.8rem}
+.stats b{color:var(--text);font-size:1rem}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px;margin-bottom:12px}
+.tile{background:var(--card2);border-radius:12px;padding:10px;text-align:center}
+.tile .v{font-size:1.15rem;font-weight:800}
+.tile .l{color:var(--muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
+.tile .d{font-size:.72rem;margin-top:2px}
+.up{color:var(--bad)} .down{color:var(--good)} .flat{color:var(--muted)}
+
+/* ===== Live (salle) ===== */
+.live{display:flex;align-items:center;gap:14px;background:var(--card);border-radius:16px;padding:16px;margin-bottom:12px}
+.live .num{font-size:2.8rem;font-weight:800;line-height:1}
+.live .lbl{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.05em}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--good);display:inline-block;margin-right:5px;animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(55,201,120,.5)}70%{box-shadow:0 0 0 9px rgba(55,201,120,0)}100%{box-shadow:0 0 0 0 rgba(55,201,120,0)}}
+
+/* ===== Graphes ===== */
+.chartwrap{position:relative;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
+canvas.chart{height:300px;display:block}
+.tip{position:absolute;pointer-events:none;background:#0b0c22;border:1px solid var(--line);border-radius:8px;
+     padding:6px 9px;font-size:.8rem;white-space:nowrap;transform:translate(-50%,-115%);z-index:5;box-shadow:0 4px 14px rgba(0,0,0,.5)}
+.tip b{color:var(--accent);font-size:.95rem}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:10px}
+.legend .li{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;color:var(--muted);cursor:pointer;user-select:none;min-height:32px}
+.legend .li.off{opacity:.35;text-decoration:line-through}
+.legend .sw{width:12px;height:12px;border-radius:3px;flex:0 0 auto}
+.empty{color:var(--muted);text-align:center;padding:32px 0}
+
+/* ===== Onglets internes ===== */
+.tabs{display:flex;gap:8px;margin-bottom:10px;overflow-x:auto}
+.tab{flex:0 0 auto;background:#0f1130;border:1px solid var(--line2);color:var(--muted);border-radius:10px;
+     padding:10px 14px;font-size:.85rem;cursor:pointer;min-height:44px}
+.tab.active{background:var(--line);color:#fff;border-color:var(--line)}
+
+/* ===== Calendrier (composant commun) ===== */
+.calwrap{position:relative;display:inline-block}
+.calpop{position:absolute;right:0;top:calc(100% + 6px);z-index:60;background:var(--card2);border:1px solid var(--line2);
+        border-radius:12px;padding:12px;width:272px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.calpop.left{right:auto;left:0}
+.cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.cal-head b{font-size:.9rem;text-transform:capitalize}
+.cal-nav{background:none;border:0;color:var(--muted);font-size:1.3rem;padding:0;cursor:pointer;border-radius:8px;
+         min-width:44px;min-height:44px}
+.cal-nav:active,.cal-nav:hover{background:var(--line2);color:var(--text)}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center}
+.cal-dow{color:var(--muted);font-size:.68rem;padding:2px 0}
+.cal-day{position:relative;padding:9px 0;border-radius:8px;font-size:.85rem;cursor:pointer;color:var(--text);
+         background:transparent;border:1px solid transparent;min-height:36px}
+.cal-day.empty{visibility:hidden;cursor:default}
+.cal-day.off{color:#4b4f78;cursor:default}
+.cal-day.mark .dot2{position:absolute;bottom:2px;left:50%;transform:translateX(-50%);width:4px;height:4px;border-radius:50%;background:var(--accent)}
+.cal-day:not(.off):not(.empty):active{background:var(--line2)}
+.cal-day.selected{background:var(--line);color:#fff;font-weight:700}
+.cal-day.today{border-color:var(--accent)}
+
+/* ===== Listes (repas, pesées) ===== */
+.list{display:flex;flex-direction:column;gap:6px}
+.li-row{display:flex;align-items:center;gap:10px;background:var(--card2);border-radius:12px;padding:10px 12px;min-height:48px}
+.li-row .grow{flex:1;min-width:0}
+.li-row .name{font-size:.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.li-row .sub{color:var(--muted);font-size:.72rem;margin-top:1px}
+.li-row .val{font-size:.85rem;font-weight:700;white-space:nowrap}
+.li-row .val small{color:var(--muted);font-weight:400}
+.li-x{background:none;border:0;color:var(--muted);font-size:1.1rem;cursor:pointer;min-width:40px;min-height:40px;border-radius:8px}
+.li-x:active{background:var(--line2);color:var(--bad)}
+
+/* ===== Jauges ===== */
+.gauge{background:#0f1130;border-radius:10px;height:14px;overflow:hidden;position:relative}
+.gauge>i{display:block;height:100%;border-radius:10px;background:var(--line);transition:width .3s}
+.gauge>i.over{background:var(--warn)}
+.gauge-l{display:flex;justify-content:space-between;font-size:.72rem;color:var(--muted);margin:4px 2px 0}
+
+/* ===== Recherche aliments ===== */
+.foodsearch{position:relative}
+.foodsearch input{width:100%}
+.fs-res{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:70;background:var(--card2);
+        border:1px solid var(--line2);border-radius:12px;max-height:260px;overflow-y:auto;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.fs-item{padding:11px 12px;font-size:.85rem;cursor:pointer;border-bottom:1px solid #1d2045}
+.fs-item:last-child{border-bottom:0}
+.fs-item:active,.fs-item:hover{background:var(--line2)}
+.fs-item .sub{color:var(--muted);font-size:.72rem;margin-top:1px}
+
+/* ===== Modale ===== */
+.modal-bg{position:fixed;inset:0;background:rgba(5,6,18,.72);z-index:90;display:flex;align-items:flex-end;justify-content:center}
+.modal{background:var(--card);border-radius:18px 18px 0 0;padding:16px;width:100%;max-width:520px;
+       max-height:86vh;overflow-y:auto}
+.modal h3{margin:0 0 12px;font-size:1rem}
+.modal .actions{display:flex;gap:8px;margin-top:14px}
+.modal .actions .btn{flex:1}
+.field{margin-bottom:10px}
+.field label{display:block;color:var(--muted);font-size:.75rem;margin-bottom:4px}
+.field input,.field select{width:100%}
+.fieldrow{display:flex;gap:8px}
+.fieldrow .field{flex:1}
+
+/* ===== Notes de source ===== */
+.srcnote{color:var(--muted);font-size:.68rem;margin-top:8px;line-height:1.5}
+
+.foot{color:var(--muted);font-size:.7rem;text-align:center;margin:18px 0 8px}
+
+/* ===== Desktop ===== */
+@media (min-width:768px){
+  body{padding-bottom:0;padding-top:64px}
+  .nav{top:0;bottom:auto;border-top:0;border-bottom:1px solid var(--line2);
+       max-width:none;justify-content:center;gap:6px}
+  .nav button{flex:0 0 auto;flex-direction:row;gap:8px;padding:10px 22px;font-size:.85rem;min-height:52px}
+  .nav button .ico{font-size:1.1rem}
+  .hdr{padding-top:20px}
+  .modal-bg{align-items:center}
+  .modal{border-radius:18px}
+  canvas.chart{height:340px}
+}
