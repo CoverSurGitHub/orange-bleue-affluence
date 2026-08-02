@@ -268,17 +268,28 @@ function render(){
   let gauges;
   if(targets){
     const pk = Math.min(100, tot.kcal/targets.kcal*100);
-    const pp = Math.min(100, tot.prot/targets.protMin*100);
-    const protOk = tot.prot >= targets.protMin;
     const rest = targets.kcal - tot.kcal;
+    /* Barre protéines : remplie par rapport au besoin MAX, repère (tick) au niveau du min.
+       Bleu = sous le min · vert = dans la zone min–max · orange = au-delà du max. */
+    const underMin = tot.prot < targets.protMin;
+    const overMax  = tot.prot > targets.protMax;
+    const pp = Math.min(100, tot.prot/targets.protMax*100);
+    const minPos = targets.protMin/targets.protMax*100;
+    const protColor = underMin ? 'var(--line)' : overMax ? 'var(--warn)' : 'var(--good)';
+    const protMsg = underMin ? 'encore '+r1(targets.protMin-tot.prot)+' g pour le min'
+                  : overMax  ? '⚠️ +'+r1(tot.prot-targets.protMax)+' g au-delà du repère'
+                  : 'dans la zone 👌';
     gauges = `
       <div class="card" style="position:sticky;top:0;z-index:10">
         <div class="gauge"><i style="width:${pk}%" class="${tot.kcal>targets.kcal?'over':''}"></i></div>
         <div class="gauge-l"><span>🔥 <b style="color:var(--text)">${r0(tot.kcal)}</b> / ${r0(targets.kcal)} kcal</span>
           <span>${rest>=0 ? r0(rest)+' restantes' : '⚠️ +'+r0(-rest)+' au-dessus'}</span></div>
-        <div class="gauge" style="margin-top:8px"><i style="width:${pp}%;background:${protOk?'var(--good)':'var(--line)'}"></i></div>
-        <div class="gauge-l"><span>🥩 <b style="color:var(--text)">${r1(tot.prot)}</b> / ${r0(targets.protMin)} g prot min ${protOk?'✅':''}</span>
-          <span class="muted">max conseillé ${r0(targets.protMax)} g</span></div>
+        <div class="gauge" style="margin-top:8px">
+          <i style="width:${pp}%;background:${protColor}"></i>
+          <span class="tick" style="left:${minPos}%"></span>
+        </div>
+        <div class="gauge-l"><span>🥩 <b style="color:var(--text)">${r1(tot.prot)}</b> / ${r0(targets.protMax)} g prot · min ${r0(targets.protMin)} ${underMin?'':'✅'}</span>
+          <span class="muted">${protMsg}</span></div>
       </div>`;
   } else {
     gauges = `<div class="card"><div class="small muted">💡 Configure ton TDEE (onglet 🔥) pour voir tes jauges d'objectif kcal/protéines.</div>

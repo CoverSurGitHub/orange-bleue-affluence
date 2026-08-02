@@ -125,6 +125,7 @@ canvas.chart{height:300px;display:block}
 .gauge{background:#0f1130;border-radius:10px;height:14px;overflow:hidden;position:relative}
 .gauge>i{display:block;height:100%;border-radius:10px;background:var(--line);transition:width .3s}
 .gauge>i.over{background:var(--warn)}
+.gauge .tick{position:absolute;top:0;bottom:0;width:2px;background:var(--text);opacity:.5;border-radius:2px}
 .gauge-l{display:flex;justify-content:space-between;font-size:.72rem;color:var(--muted);margin:4px 2px 0}
 
 /* ===== Recherche aliments ===== */
