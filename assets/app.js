@@ -125,6 +125,7 @@ const Store = {
         schemaVersion: 1,
         updatedAt: nowIso(),
         weights: {},          // "YYYY-MM-DD" -> {kg, updatedAt}
+        gym: {},              // "YYYY-MM-DD" -> {go:true/false, updatedAt} — séances à la salle
         foods: [],            // aliments perso {id, nom, kcal, prot, updatedAt, deleted?}
         recipes: [],          // plats {id, nom, cat, items:[{nom,kcal100,prot100,qty}], updatedAt, deleted?}
         journal: {},          // "YYYY-MM-DD" -> {eaten:[{id,type,…,count}], updatedAt}
@@ -134,8 +135,9 @@ const Store = {
         settings: {}          // {objectifPoids}
       };
     }
-    // normalisation (anciens stores v1 sans mealCats)
+    // normalisation (anciens stores v1)
     if(!this.data.mealCats) this.data.mealCats = [{id:'mc1', nom:'Repas'}, {id:'mc2', nom:'Collations'}];
+    if(!this.data.gym) this.data.gym = {};
     return this.data;
   },
   save(){
@@ -196,6 +198,8 @@ const Sync = {
     const out = JSON.parse(JSON.stringify(local));
     const newer = (a,b) => (!a ? b : !b ? a : (a.updatedAt > b.updatedAt ? a : b));
     for(const k of Object.keys(remote.weights||{})) out.weights[k] = newer(out.weights[k], remote.weights[k]);
+    out.gym = out.gym || {};
+    for(const k of Object.keys(remote.gym||{})) out.gym[k] = newer(out.gym[k], remote.gym[k]);
     for(const k of Object.keys(remote.journal||{})) out.journal[k] = newer(out.journal[k], remote.journal[k]);
     for(const coll of ['foods','recipes']){
       const byId = Object.fromEntries(out[coll].map(x=>[x.id,x]));

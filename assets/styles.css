@@ -108,6 +108,19 @@ canvas.chart{height:300px;display:block}
 .cal-day.selected{background:var(--line);color:#fff;font-weight:700}
 .cal-day.today{border-color:var(--accent)}
 
+/* ===== Séances : calendrier inline + heatmap annuelle ===== */
+.cal-day.gym{background:var(--good);color:#062;font-weight:700}
+.cal-day.gym.today{border-color:var(--accent)}
+.cal-day.future{color:#3a3d63;cursor:default}
+#gToday.done{background:var(--good);border-color:var(--good);color:#04331a}
+.heatwrap{overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
+.heat{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,10px);gap:3px;width:max-content}
+.heat i{width:10px;height:10px;border-radius:2px;background:#20234a;display:block}
+.heat i.on{background:var(--good)}
+.heat i.pad{background:transparent}
+.heat i.tdy{outline:1.5px solid var(--accent);outline-offset:1px}
+.heat-months{display:grid;grid-auto-flow:column;gap:3px;width:max-content;font-size:.62rem;color:var(--muted);margin-bottom:3px}
+
 /* ===== Listes (repas, pesées) ===== */
 .list{display:flex;flex-direction:column;gap:6px}
 .li-row{display:flex;align-items:center;gap:10px;background:var(--card2);border-radius:12px;padding:10px 12px;min-height:48px}

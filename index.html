@@ -6,6 +6,7 @@
 <meta name="theme-color" content="#0f1024" />
 <title>Ma salle & moi — Orgeval</title>
 <link rel="stylesheet" href="assets/styles.css" />
+<link rel="stylesheet" href="assets/cursor.css" />
 </head>
 <body>
 
@@ -73,6 +74,31 @@
       Comparaison construite sur tes mesures réelles — elle s'enrichit chaque semaine.
     </div>
   </div>
+  <!-- ---- Mes séances ---- -->
+  <div class="card">
+    <h2>📆 Mes séances</h2>
+    <button class="btn primary" id="gToday" style="width:100%;font-size:1rem;padding:14px">
+      💪 J'y suis allé aujourd'hui
+    </button>
+    <div class="tiles" id="gTiles" style="margin-top:12px"></div>
+
+    <div class="cal-head" style="margin:4px 0 8px">
+      <button class="cal-nav" id="gPrev" type="button">‹</button>
+      <b id="gMonthLabel"></b>
+      <button class="cal-nav" id="gNext" type="button">›</button>
+    </div>
+    <div class="cal-grid" id="gGrid"></div>
+    <div class="small muted center" style="margin-top:8px">Tape un jour pour le marquer ou l'enlever</div>
+
+    <div style="margin-top:16px">
+      <div class="row" style="margin-bottom:6px">
+        <b class="small" id="gYearLabel"></b>
+        <span class="small muted" id="gYearCount"></span>
+      </div>
+      <div class="heatwrap"><div class="heat" id="gHeat"></div></div>
+    </div>
+  </div>
+
   <div class="foot">Affluence : API publique L'Orange Bleue · capté toutes les 10 min · <span id="sLastUpd"></span></div>
 </main>
 
@@ -151,6 +177,7 @@
 
 <script src="assets/app.js"></script>
 <script src="assets/salle.js"></script>
+<script src="assets/gym.js"></script>
 <script src="assets/poids.js"></script>
 <script src="assets/repas.js"></script>
 <script src="assets/tdee.js"></script>
