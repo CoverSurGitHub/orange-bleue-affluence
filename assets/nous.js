@@ -265,8 +265,8 @@ function render(){
   markSeen();
 }
 
-async function refresh(){
-  if(Sync.cfg) await Sync.pull();
+async function refresh(force){
+  if(Sync.cfg) await Sync.syncNow(force);   // pull + renvoi de ce qui attend (anti-doublon intégré)
   // (en autoRO, le rafraîchissement périodique global s'en charge déjà)
   render();
 }
@@ -274,7 +274,7 @@ async function refresh(){
 document.addEventListener('DOMContentLoaded', ()=>{
   document.getElementById('nTabMsg').addEventListener('click', ()=>{ tab='msg'; render(); });
   document.getElementById('nTabDates').addEventListener('click', ()=>{ tab='dates'; render(); });
-  document.getElementById('nRefresh').addEventListener('click', refresh);
+  document.getElementById('nRefresh').addEventListener('click', ()=>refresh(true));
 
   document.addEventListener('pageshow', e=>{
     clearInterval(pollTimer); pollTimer=null;

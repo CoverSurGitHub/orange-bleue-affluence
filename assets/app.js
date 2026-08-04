@@ -216,9 +216,10 @@ const Store = {
     return this.data;
   },
   save(){
+    if(Sync.cfg) Sync.autoRO = false;      // un jeton d'écriture prime toujours sur la consultation
     if(Sync.autoRO){
       alert('👁 Mode consultation : tu regardes les données publiées, les modifications ne sont pas enregistrées.\n(Pour tenir ton propre suivi sur cet appareil : ⚙️ Réglages → « Mon propre suivi ».)');
-      fetch(Sync.FILE + '?_=' + Date.now()).then(r=>r.ok?r.json():null).then(d=>{
+      fetch(Sync.FILE + '?_=' + Date.now(), {cache:'no-store'}).then(r=>r.ok?r.json():null).then(d=>{
         if(d){ this.all = (d.schemaVersion===2) ? d : wrapV1(d); document.dispatchEvent(new CustomEvent('storechange')); }
       }).catch(()=>{});
       return;
@@ -243,21 +244,40 @@ const Sync = {
   status: 'off',              // off | ok | syncing | error
   lastError: null,
   autoRO: false,              // consultation automatique (sans jeton)
+  lastSyncAt: null,
   _timer: null,
   _sha: null,
+  _pulling: null,             // promesse en cours (évite les pulls concurrents)
+  _lastPull: 0,
 
   setStatus(s, err){
     this.status = s; this.lastError = err || null;
     const el = document.getElementById('syncBadge');
-    if(el){
-      const ic = this.autoRO ? '👁' : '☁️';
-      el.textContent = s==='off' ? '' : (s==='ok' ? ic+'✓' : s==='syncing' ? ic+'…' : ic+'⚠️');
-      el.title = s==='error' ? ('Sync : ' + (err||'erreur')) : (this.autoRO?'Consultation seule · ':'') + 'synchronisation ' + s;
+    if(!el) return;
+    const ic = this.autoRO ? '👁' : '☁️';
+    if(s === 'off'){ el.textContent = ''; el.title = ''; return; }
+    if(this.dirty && s !== 'syncing'){       // des modifs attendent d'être envoyées
+      el.textContent = ic + '↑';
+      el.title = 'Modifications en attente d\'envoi' + (err ? ' — ' + err : '');
+      return;
     }
+    el.textContent = s==='ok' ? ic+'✓' : s==='syncing' ? ic+'…' : ic+'⚠️';
+    el.title = s==='error' ? ('Sync : ' + (err||'erreur'))
+             : (this.autoRO?'Consultation seule · ':'') + 'synchronisé' +
+               (this.lastSyncAt ? ' à ' + new Date(this.lastSyncAt).toLocaleTimeString('fr-FR') : '');
   },
+  /* "sale" = des changements locaux ne sont pas encore confirmés côté serveur.
+     Persisté : si l'app est fermée avant l'envoi, on réessaiera à la réouverture. */
+  get dirty(){ return localStorage.getItem('ob.dirty') === '1'; },
+  set dirty(v){ v ? localStorage.setItem('ob.dirty','1') : localStorage.removeItem('ob.dirty'); },
+
   api(path, init={}){
     const c = this.cfg;
-    return fetch(`https://api.github.com/repos/${c.owner}/${c.repo}/contents/${path}`, {
+    const isRead = !init.method || init.method === 'GET';
+    // ⚠️ l'API GitHub répond Cache-Control: max-age=60 → sans ça, on relit une copie périmée
+    const bust = isRead ? (path.includes('?') ? '&' : '?') + '_=' + Date.now() : '';
+    return fetch(`https://api.github.com/repos/${c.owner}/${c.repo}/contents/${path}${bust}`, {
+      cache: 'no-store',
       ...init,
       headers: {
         'Accept':'application/vnd.github+json',
@@ -327,20 +347,33 @@ const Sync = {
   },
   async pull(){
     if(!this.cfg) return;
-    this.setStatus('syncing');
-    try{
-      const res = await this.api(this.FILE);
-      if(res.status === 404){ this._sha = null; this.setStatus('ok'); return; } // pas encore de fichier
-      if(!res.ok) throw new Error('HTTP ' + res.status);
-      const j = await res.json();
-      this._sha = j.sha;
-      const remote = JSON.parse(decodeURIComponent(escape(atob(j.content.replace(/\n/g,'')))));
-      Store.all = this.merge(Store.all, remote);
-      localStorage.setItem(STORE_KEY, JSON.stringify(Store.all));
-      document.dispatchEvent(new CustomEvent('profilechange'));
-      document.dispatchEvent(new CustomEvent('storechange'));
-      this.setStatus('ok');
-    }catch(e){ this.setStatus('error', e.message); }
+    if(this._pulling) return this._pulling;          // un seul pull à la fois
+    this._pulling = (async ()=>{
+      this.setStatus('syncing');
+      try{
+        const res = await this.api(this.FILE);
+        if(res.status === 404){ this._sha = null; this._lastPull = Date.now(); this.setStatus('ok'); return; }
+        if(!res.ok) throw new Error('HTTP ' + res.status);
+        const j = await res.json();
+        this._sha = j.sha;
+        const remote = JSON.parse(decodeURIComponent(escape(atob(j.content.replace(/\n/g,'')))));
+        Store.all = this.merge(Store.all, remote);
+        localStorage.setItem(STORE_KEY, JSON.stringify(Store.all));
+        this._lastPull = Date.now(); this.lastSyncAt = Date.now();
+        document.dispatchEvent(new CustomEvent('profilechange'));
+        document.dispatchEvent(new CustomEvent('storechange'));
+        this.setStatus('ok');
+      }catch(e){ this.setStatus('error', e.message); }
+      finally{ this._pulling = null; }
+    })();
+    return this._pulling;
+  },
+  /* Synchronisation complète : on récupère puis on renvoie ce qui attend. */
+  async syncNow(force){
+    if(!this.cfg) return;
+    if(!force && Date.now() - this._lastPull < 4000) { if(this.dirty) await this.push(); return; }
+    await this.pull();
+    if(this.dirty) await this.push();
   },
   /* Consultation automatique (visiteur sans jeton) : lit le fichier publié sur le site.
      Ne s'active QUE si cet appareil n'a aucune donnée locale (pour ne rien écraser). */
@@ -355,7 +388,7 @@ const Sync = {
     if(!empty) return;
     const adopt = c => { Store.all = (c.schemaVersion===2) ? c : wrapV1(c); };
     try{
-      const res = await fetch(this.FILE + '?_=' + Date.now());
+      const res = await fetch(this.FILE + '?_=' + Date.now(), {cache:'no-store'});
       if(!res.ok) return;
       const remote = await res.json();
       if(remote.schemaVersion !== 1 && remote.schemaVersion !== 2) return;
@@ -366,7 +399,7 @@ const Sync = {
       this.setStatus('ok');
       setInterval(async ()=>{
         try{
-          const r = await fetch(this.FILE + '?_=' + Date.now());
+          const r = await fetch(this.FILE + '?_=' + Date.now(), {cache:'no-store'});
           if(r.ok){ adopt(await r.json());
             document.dispatchEvent(new CustomEvent('profilechange'));
             document.dispatchEvent(new CustomEvent('storechange')); }
@@ -375,30 +408,68 @@ const Sync = {
     }catch(e){}
   },
   schedulePush(){
-    if(!this.cfg) return;
+    this.dirty = true;                     // marqué AVANT l'envoi : survit à une fermeture
+    if(!this.cfg){ this.setStatus(this.status); return; }
     clearTimeout(this._timer);
-    this._timer = setTimeout(()=>this.push(), 2500);
+    this._timer = setTimeout(()=>this.push(), 1200);
+    this.setStatus('syncing');
   },
   async push(attempt=0){
-    if(!this.cfg) return;
+    if(!this.cfg || !this.dirty) return;
+    clearTimeout(this._timer);
     this.setStatus('syncing');
     try{
+      const payload = JSON.stringify(Store.all);
       const body = {
         message: 'perso: ' + nowIso(),
-        content: btoa(unescape(encodeURIComponent(JSON.stringify(Store.all)))),
+        content: btoa(unescape(encodeURIComponent(payload))),
       };
       if(this._sha) body.sha = this._sha;
       const res = await this.api(this.FILE, {method:'PUT', body: JSON.stringify(body)});
       if(res.status === 409 || res.status === 422){
-        if(attempt >= 2) throw new Error('conflit non résolu');
-        await this.pull();                      // récupère + merge + nouveau sha
+        if(attempt >= 3) throw new Error('conflit non résolu');
+        await this.pull();                      // récupère + fusionne + nouveau sha
         return this.push(attempt+1);
       }
       if(!res.ok) throw new Error('HTTP ' + res.status);
       const j = await res.json();
       this._sha = j.content.sha;
+      this.dirty = false;                       // confirmé côté serveur
+      this.lastSyncAt = Date.now();
       this.setStatus('ok');
-    }catch(e){ this.setStatus('error', e.message); }
+    }catch(e){
+      this.setStatus('error', e.message);       // reste "dirty" → réessai auto plus tard
+      if(attempt < 3) setTimeout(()=>this.push(attempt+1), 5000 * (attempt+1));
+    }
+  },
+  /* Dernière chance : l'app passe en arrière-plan ou se ferme.
+     `keepalive` laisse la requête se terminer même après la fermeture de l'onglet. */
+  flush(){
+    if(!this.cfg || !this.dirty || !this._sha) return;
+    clearTimeout(this._timer);
+    try{
+      const payload = JSON.stringify(Store.all);
+      if(payload.length > 55000) { this.push(); return; }   // trop gros pour keepalive
+      const c = this.cfg;
+      fetch(`https://api.github.com/repos/${c.owner}/${c.repo}/contents/${this.FILE}`, {
+        method:'PUT', keepalive:true,
+        headers:{'Accept':'application/vnd.github+json','Authorization':'Bearer '+c.token,'X-GitHub-Api-Version':'2022-11-28'},
+        body: JSON.stringify({message:'perso: '+nowIso(),
+          content: btoa(unescape(encodeURIComponent(payload))), sha:this._sha})
+      }).then(r=>{ if(r.ok) this.dirty = false; }).catch(()=>{});
+    }catch(e){}
+  },
+  /* Réveils : reprise d'onglet, retour de veille, intervalle régulier. */
+  installLifecycle(){
+    const wake = ()=>{ if(document.visibilityState === 'visible') this.syncNow(); };
+    document.addEventListener('visibilitychange', ()=>{
+      if(document.visibilityState === 'hidden') this.flush(); else this.syncNow(true);
+    });
+    window.addEventListener('pageshow', e=>{ if(e.persisted) this.syncNow(true); });  // retour bfcache (iOS)
+    window.addEventListener('focus', wake);
+    window.addEventListener('online', ()=>this.syncNow(true));
+    window.addEventListener('pagehide', ()=>this.flush());
+    setInterval(wake, 45000);                    // filet régulier tant que l'app est ouverte
   }
 };
 
@@ -571,10 +642,12 @@ function openSettings(){
           <div class="field"><label>Dépôt</label><input id="syncRepo" type="text" value="${esc(c.repo)}" autocapitalize="off"></div>
         </div>
         <div class="field"><label>Jeton (fine-grained, Contents RW sur ce dépôt)</label><input id="syncToken" type="password" value="${esc(c.token)}" placeholder="github_pat_…"></div>
-        <div class="actions" style="display:flex;gap:8px">
+        <div class="actions" style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn primary" id="syncSave">Activer l'écriture</button>
+          <button class="btn" id="syncNow">🔄 Synchroniser</button>
           <button class="btn danger" id="syncOff">Désactiver</button>
         </div>
+        <div class="small muted" id="syncInfo" style="margin-top:8px"></div>
       </div>
       ${Sync.autoRO ? `<div class="card" style="background:var(--card2)">
         <h2>👁 Tu es en consultation seule</h2>
@@ -609,6 +682,23 @@ function openSettings(){
     else { Sync.schedulePush(); alert('Écriture activée ✔ Tes données seront synchronisées.'); close(); }
   });
   bg.querySelector('#syncOff').addEventListener('click', ()=>{ Sync.cfg = null; Sync.setStatus('off'); close(); });
+  const info = bg.querySelector('#syncInfo');
+  const paintInfo = ()=>{
+    if(!info) return;
+    info.innerHTML = !Sync.cfg ? 'Écriture non activée.'
+      : (Sync.dirty ? '⏳ <b>Modifications en attente d\'envoi.</b> ' : '✅ Tout est enregistré. ')
+      + (Sync.lastSyncAt ? 'Dernière synchro : ' + new Date(Sync.lastSyncAt).toLocaleTimeString('fr-FR') + '.' : '')
+      + (Sync.lastError ? ' <span style="color:var(--bad)">Erreur : '+esc(Sync.lastError)+'</span>' : '');
+  };
+  paintInfo();
+  const syncBtn = bg.querySelector('#syncNow');
+  if(syncBtn) syncBtn.addEventListener('click', async ()=>{
+    syncBtn.disabled = true; syncBtn.textContent = '…';
+    await Sync.syncNow(true);
+    syncBtn.disabled = false; syncBtn.textContent = '🔄 Synchroniser';
+    paintInfo();
+    if(!Sync.dirty && !Sync.lastError) alert('Synchronisé ✔');
+  });
   // --- apparence ---
   bg.querySelectorAll('[data-thm]').forEach(b=>b.addEventListener('click', ()=>{
     setAppearance({theme:b.dataset.thm});
@@ -667,6 +757,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
   refreshProfileButton();
   applyAppearance();
   showPage(localStorage.getItem('ob.lastPage') || 'salle');
-  if(Sync.cfg) Sync.pull();
-  else Sync.tryAutoRO();
+  if(Sync.cfg){
+    Sync.installLifecycle();
+    Sync.syncNow(true);          // récupère, puis renvoie ce qui restait en attente
+  } else {
+    Sync.tryAutoRO();
+  }
 });
