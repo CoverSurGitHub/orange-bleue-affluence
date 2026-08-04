@@ -345,8 +345,11 @@ const Sync = {
     out.shared = this.mergeShared(out.shared, remote.shared || {});
     return out;
   },
-  async pull(){
+  async pull(opts={}){
     if(!this.cfg) return;
+    // Ne jamais remplacer les données sous les pieds d'une saisie en cours :
+    // une fenêtre ouverte (recette, date, réglages…) serait détachée du store.
+    if(!opts.force && document.querySelector('.modal-bg')) return;
     if(this._pulling) return this._pulling;          // un seul pull à la fois
     this._pulling = (async ()=>{
       this.setStatus('syncing');
@@ -372,7 +375,7 @@ const Sync = {
   async syncNow(force){
     if(!this.cfg) return;
     if(!force && Date.now() - this._lastPull < 4000) { if(this.dirty) await this.push(); return; }
-    await this.pull();
+    await this.pull({force});
     if(this.dirty) await this.push();
   },
   /* Consultation automatique (visiteur sans jeton) : lit le fichier publié sur le site.
@@ -461,13 +464,14 @@ const Sync = {
   },
   /* Réveils : reprise d'onglet, retour de veille, intervalle régulier. */
   installLifecycle(){
+    // `wake` ne force pas : si une fenêtre d'édition est ouverte, on ne touche à rien.
     const wake = ()=>{ if(document.visibilityState === 'visible') this.syncNow(); };
     document.addEventListener('visibilitychange', ()=>{
-      if(document.visibilityState === 'hidden') this.flush(); else this.syncNow(true);
+      if(document.visibilityState === 'hidden') this.flush(); else wake();
     });
-    window.addEventListener('pageshow', e=>{ if(e.persisted) this.syncNow(true); });  // retour bfcache (iOS)
+    window.addEventListener('pageshow', e=>{ if(e.persisted) wake(); });   // retour bfcache (iOS)
     window.addEventListener('focus', wake);
-    window.addEventListener('online', ()=>this.syncNow(true));
+    window.addEventListener('online', wake);
     window.addEventListener('pagehide', ()=>this.flush());
     setInterval(wake, 45000);                    // filet régulier tant que l'app est ouverte
   }

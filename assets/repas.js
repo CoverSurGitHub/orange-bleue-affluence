@@ -180,7 +180,12 @@ function eatenCount(j, recipeId){
   const e = j.eaten.find(x=>x.type==='recipe' && x.recipeId===recipeId);
   return e ? e.count : 0;
 }
-function bumpRecipe(j, rec, delta){
+/* ⚠️ Toujours re-résoudre depuis le store au moment de l'action : une synchro
+   peut avoir remplacé les objets entre l'affichage et le clic. */
+function bumpRecipe(recipeId, delta){
+  const j = ensureDay(day);
+  const rec = Store.data.recipes.find(r=>r.id===recipeId);
+  if(!rec) return;
   let e = j.eaten.find(x=>x.type==='recipe' && x.recipeId===rec.id);
   if(!e && delta>0){
     const t = recipeTotals(rec);                       // snapshot au moment du tap
@@ -252,8 +257,11 @@ function foodPicker(title, onPick){
 
 /* ---- éditeur de plat (recette) ---- */
 function editRecipe(id, presetCat){
-  let rec = id ? Store.data.recipes.find(r=>r.id===id)
-              : {id:uid(), nom:'', cat:presetCat||null, items:[], updatedAt:nowIso()};
+  // On édite une COPIE : une synchro peut remplacer les objets du store pendant
+  // que la fenêtre est ouverte. À l'enregistrement, on réécrit par identifiant.
+  const src = id ? Store.data.recipes.find(r=>r.id===id) : null;
+  let rec = src ? JSON.parse(JSON.stringify(src))
+               : {id:uid(), nom:'', cat:presetCat||null, items:[], updatedAt:nowIso()};
   const isNew = !id;
   const bg = document.createElement('div');
   bg.className='modal-bg';
@@ -312,7 +320,10 @@ function editRecipe(id, presetCat){
       if(!rec.items.length){ alert('Ajoute au moins un ingrédient.'); return; }
       if(!rec.cat) rec.cat = Store.data.mealCats[0].id;
       rec.updatedAt = nowIso();
-      if(isNew) Store.data.recipes.push(rec);
+      // réécriture par identifiant dans le store VIVANT (et non via la référence gardée)
+      const list = Store.data.recipes;
+      const i = list.findIndex(r=>r.id===rec.id);
+      if(i >= 0) list[i] = rec; else list.push(rec);
       // Le jour AFFICHÉ reflète immédiatement les nouvelles valeurs du plat ;
       // les autres jours (historique) restent figés sur leurs valeurs d'époque.
       const j = Store.data.journal[day];
@@ -331,7 +342,8 @@ function editRecipe(id, presetCat){
     const del = bg.querySelector('#rcDel');
     if(del) del.addEventListener('click', ()=>{
       if(!confirm(`Supprimer « ${rec.nom} » de ta bibliothèque ?\n(Les jours où tu l'as mangé gardent leurs valeurs.)`)) return;
-      rec.deleted = true; rec.updatedAt = nowIso();
+      const live = Store.data.recipes.find(r=>r.id===rec.id);
+      if(live){ live.deleted = true; live.updatedAt = nowIso(); }
       Store.save(); close(); render();
     });
     bg.querySelector('#rcCancel').addEventListener('click', close);
@@ -435,16 +447,13 @@ function render(){
     </div>`;
 
   /* listeners */
-  el.querySelectorAll('[data-plus]').forEach(b=>b.addEventListener('click', ()=>{
-    bumpRecipe(j, Store.data.recipes.find(r=>r.id===b.dataset.plus), +1);
-  }));
-  el.querySelectorAll('[data-minus]').forEach(b=>b.addEventListener('click', ()=>{
-    bumpRecipe(j, Store.data.recipes.find(r=>r.id===b.dataset.minus), -1);
-  }));
+  el.querySelectorAll('[data-plus]').forEach(b=>b.addEventListener('click', ()=>bumpRecipe(b.dataset.plus, +1)));
+  el.querySelectorAll('[data-minus]').forEach(b=>b.addEventListener('click', ()=>bumpRecipe(b.dataset.minus, -1)));
   el.querySelectorAll('[data-edit]').forEach(d=>d.addEventListener('click', ()=>editRecipe(d.dataset.edit)));
   el.querySelectorAll('[data-newmeal]').forEach(b=>b.addEventListener('click', ()=>editRecipe(null, b.dataset.newmeal)));
   el.querySelectorAll('[data-delextra]').forEach(b=>b.addEventListener('click', ()=>{
-    j.eaten = j.eaten.filter(e=>e.id!==b.dataset.delextra);
+    const jd = ensureDay(day);                       // re-résolu au clic
+    jd.eaten = jd.eaten.filter(e=>e.id!==b.dataset.delextra);
     touchDay(); render();
   }));
   el.querySelectorAll('[data-rencat]').forEach(h=>h.addEventListener('click', ()=>{
@@ -470,7 +479,7 @@ function render(){
   });
   el.querySelector('#rAddExtra').addEventListener('click', ()=>{
     foodPicker('Extra — aliment ponctuel', item=>{
-      j.eaten.push({id:item.id, type:'food', nom:item.nom, qty:item.qty,
+      ensureDay(day).eaten.push({id:item.id, type:'food', nom:item.nom, qty:item.qty,
         units:item.units, unitLabel:item.unitLabel, unitOne:item.unitOne, unitMany:item.unitMany,
         unitEmo:item.unitEmo, ml:item.ml,
         kcal:item.kcal100*item.qty/100, prot:item.prot100*item.qty/100, count:1});
