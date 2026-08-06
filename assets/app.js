@@ -1,6 +1,7 @@
 /* ===== Noyau : navigation, calendrier commun, store, sync ===== */
 'use strict';
 
+const APP_VERSION = 'mshu4v4x';   // bumpé à chaque déploiement (voir bump.js)
 const TZ = 'Europe/Paris';
 const fmtDayKey  = new Intl.DateTimeFormat('fr-CA', {timeZone:TZ, year:'numeric', month:'2-digit', day:'2-digit'});
 const fmtTime    = new Intl.DateTimeFormat('fr-FR', {timeZone:TZ, hour:'2-digit', minute:'2-digit'});
@@ -614,7 +615,7 @@ function openSettings(){
   bg.className = 'modal-bg';
   bg.innerHTML = `
     <div class="modal">
-      <h3>⚙️ Réglages</h3>
+      <h3>⚙️ Réglages <span class="small muted" style="font-weight:400">v${APP_VERSION}</span></h3>
       <div class="card" style="background:var(--card2)">
         <h2>🎨 Apparence — profil « ${esc(Store.active.nom)} »</h2>
         <p class="small muted" style="margin:0 0 10px">Ton style te suit sur tous tes appareils. Chacun le sien 💅</p>
