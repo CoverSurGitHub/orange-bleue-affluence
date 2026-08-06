@@ -37,7 +37,9 @@ function hideTip(){ const t=document.getElementById('sTip'); if(t) t.style.displ
 
 async function load(){
   try{
-    const res = await fetch('data.csv?_=' + Date.now());
+    // Les mesures vivent sur la branche `data` (voir DATA_BRANCH dans app.js) :
+    // ainsi les relevés toutes les 10 min ne relancent plus la publication du site.
+    const res = await fetch(DATA_URL('data.csv'), {cache:'no-store'});
     const text = await res.text();
     const lines = text.trim().split(/\r?\n/).slice(1);
     ROWS = lines.filter(Boolean).map(l => {

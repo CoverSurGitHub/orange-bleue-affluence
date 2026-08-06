@@ -1,7 +1,15 @@
 /* ===== Noyau : navigation, calendrier commun, store, sync ===== */
 'use strict';
 
-const APP_VERSION = 'mshu4v4x';   // bumpé à chaque déploiement (voir bump.js)
+const APP_VERSION = 'mshugh6g';   // bumpé à chaque déploiement (voir bump.js)
+
+/* Les DONNÉES (mesures d'affluence + coffre perso) vivent sur la branche `data`,
+   séparée du code. Raison : chaque commit sur `main` relance une build GitHub
+   Pages qui annule la précédente ; avec un relevé toutes les 10 min, le site ne
+   se republiait plus et les appareils restaient bloqués sur du code périmé. */
+const DATA_REPO   = 'CoverSurGitHub/orange-bleue-affluence';
+const DATA_BRANCH = 'data';
+const DATA_URL = f => `https://raw.githubusercontent.com/${DATA_REPO}/${DATA_BRANCH}/${f}?_=${Date.now()}`;
 const TZ = 'Europe/Paris';
 const fmtDayKey  = new Intl.DateTimeFormat('fr-CA', {timeZone:TZ, year:'numeric', month:'2-digit', day:'2-digit'});
 const fmtTime    = new Intl.DateTimeFormat('fr-FR', {timeZone:TZ, hour:'2-digit', minute:'2-digit'});
@@ -220,7 +228,7 @@ const Store = {
     if(Sync.cfg) Sync.autoRO = false;      // un jeton d'écriture prime toujours sur la consultation
     if(Sync.autoRO){
       alert('👁 Mode consultation : tu regardes les données publiées, les modifications ne sont pas enregistrées.\n(Pour tenir ton propre suivi sur cet appareil : ⚙️ Réglages → « Mon propre suivi ».)');
-      fetch(Sync.FILE + '?_=' + Date.now(), {cache:'no-store'}).then(r=>r.ok?r.json():null).then(d=>{
+      fetch(DATA_URL(Sync.FILE), {cache:'no-store'}).then(r=>r.ok?r.json():null).then(d=>{
         if(d){ this.all = (d.schemaVersion===2) ? d : wrapV1(d); document.dispatchEvent(new CustomEvent('storechange')); }
       }).catch(()=>{});
       return;
@@ -282,8 +290,9 @@ const Sync = {
     const c = this.cfg;
     const isRead = !init.method || init.method === 'GET';
     // ⚠️ l'API GitHub répond Cache-Control: max-age=60 → sans ça, on relit une copie périmée
-    const bust = isRead ? (path.includes('?') ? '&' : '?') + '_=' + Date.now() : '';
-    return fetch(`https://api.github.com/repos/${c.owner}/${c.repo}/contents/${path}${bust}`, {
+    // `ref` cible la branche de données (le code reste sur main).
+    const q = isRead ? `?ref=${DATA_BRANCH}&_=${Date.now()}` : '';
+    return fetch(`https://api.github.com/repos/${c.owner}/${c.repo}/contents/${path}${q}`, {
       cache: 'no-store',
       ...init,
       headers: {
@@ -401,7 +410,7 @@ const Sync = {
     if(!empty) return;
     const adopt = c => { Store.all = (c.schemaVersion===2) ? c : wrapV1(c); };
     try{
-      const res = await fetch(this.FILE + '?_=' + Date.now(), {cache:'no-store'});
+      const res = await fetch(DATA_URL(this.FILE), {cache:'no-store'});
       if(!res.ok) return;
       const remote = await res.json();
       if(remote.schemaVersion !== 1 && remote.schemaVersion !== 2) return;
@@ -412,7 +421,7 @@ const Sync = {
       this.setStatus('ok');
       setInterval(async ()=>{
         try{
-          const r = await fetch(this.FILE + '?_=' + Date.now(), {cache:'no-store'});
+          const r = await fetch(DATA_URL(this.FILE), {cache:'no-store'});
           if(r.ok){ adopt(await r.json());
             document.dispatchEvent(new CustomEvent('profilechange'));
             document.dispatchEvent(new CustomEvent('storechange')); }
@@ -436,6 +445,7 @@ const Sync = {
       const body = {
         message: 'perso: ' + nowIso(),
         content: btoa(unescape(encodeURIComponent(payload))),
+        branch: DATA_BRANCH,
       };
       if(this._sha) body.sha = this._sha;
       const res = await this.api(this.FILE, {method:'PUT', body: JSON.stringify(body)});
@@ -468,7 +478,7 @@ const Sync = {
         method:'PUT', keepalive:true,
         headers:{'Accept':'application/vnd.github+json','Authorization':'Bearer '+c.token,'X-GitHub-Api-Version':'2022-11-28'},
         body: JSON.stringify({message:'perso: '+nowIso(),
-          content: btoa(unescape(encodeURIComponent(payload))), sha:this._sha})
+          content: btoa(unescape(encodeURIComponent(payload))), sha:this._sha, branch:DATA_BRANCH})
       }).then(r=>{ if(r.ok) this.dirty = false; }).catch(()=>{});
     }catch(e){}
   },
