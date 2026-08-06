@@ -284,7 +284,7 @@ function editRecipe(id, presetCat){
             <div class="li-row">
               <div class="grow" data-q="${it.id}"><div class="name">${esc(it.nom)}</div>
                 <span class="chip">${qtyChip(it)}</span></div>
-              <div class="val">${r0(kcalOf(it))} <small>kcal</small></div>
+              <div class="val">${r0(kcalOf(it))} <small>kcal</small><br><span class="small" style="font-weight:400">${r1(protOf(it))} g prot</span></div>
               <button class="li-x" data-x="${it.id}">✕</button>
             </div>`).join('')}
         </div>
