@@ -255,7 +255,13 @@ const Sync = {
     const el = document.getElementById('syncBadge');
     if(!el) return;
     const ic = this.autoRO ? '👁' : '☁️';
-    if(s === 'off'){ el.textContent = ''; el.title = ''; return; }
+    if(s === 'off'){
+      // Silence = piège : l'utilisateur croit être synchronisé alors que tout reste local.
+      el.textContent = '📵';
+      el.title = 'Cet appareil n\'est PAS synchronisé — données locales uniquement. ⚙️ Réglages pour activer.';
+      el.style.cursor = 'pointer';
+      return;
+    }
     if(this.dirty && s !== 'syncing'){       // des modifs attendent d'être envoyées
       el.textContent = ic + '↑';
       el.title = 'Modifications en attente d\'envoi' + (err ? ' — ' + err : '');
@@ -290,14 +296,17 @@ const Sync = {
   // fusion des DONNÉES d'un profil, entrée par entrée : la plus récente gagne
   mergeData(local, remote){
     const out = Object.assign(blankProfileData(), JSON.parse(JSON.stringify(local||{})));
-    const newer = (a,b) => (!a ? b : !b ? a : (a.updatedAt > b.updatedAt ? a : b));
+    // ⚠️ une date manquante vaut "" : sans ça, la comparaison est toujours fausse
+    // et la version locale gagnerait indéfiniment (donnée figée pour toujours).
+    const ts = x => (x && x.updatedAt) || '';
+    const newer = (a,b) => (!a ? b : !b ? a : (ts(a) >= ts(b) ? a : b));
     for(const k of Object.keys(remote.weights||{})) out.weights[k] = newer(out.weights[k], remote.weights[k]);
     for(const k of Object.keys(remote.gym||{}))     out.gym[k]     = newer(out.gym[k],     remote.gym[k]);
     for(const k of Object.keys(remote.journal||{})) out.journal[k] = newer(out.journal[k], remote.journal[k]);
     for(const coll of ['foods','recipes']){
       const byId = Object.fromEntries((out[coll]||[]).map(x=>[x.id,x]));
       for(const r of (remote[coll]||[])){
-        if(!byId[r.id] || r.updatedAt > byId[r.id].updatedAt) byId[r.id] = r;
+        if(!byId[r.id] || ts(r) > ts(byId[r.id])) byId[r.id] = r;
       }
       out[coll] = Object.values(byId);
     }
@@ -651,6 +660,9 @@ function openSettings(){
           <button class="btn" id="syncNow">🔄 Synchroniser</button>
           <button class="btn danger" id="syncOff">Désactiver</button>
         </div>
+        <button class="btn" id="syncForce" style="width:100%;margin-top:8px">⬇️ Tout recharger depuis le coffre</button>
+        <div class="small muted" style="margin-top:4px">À utiliser si cet appareil reste bloqué sur une vieille version :
+        ses données locales sont remplacées par celles du coffre.</div>
         <div class="small muted" id="syncInfo" style="margin-top:8px"></div>
       </div>
       ${Sync.autoRO ? `<div class="card" style="background:var(--card2)">
@@ -687,14 +699,53 @@ function openSettings(){
   });
   bg.querySelector('#syncOff').addEventListener('click', ()=>{ Sync.cfg = null; Sync.setStatus('off'); close(); });
   const info = bg.querySelector('#syncInfo');
-  const paintInfo = ()=>{
+  const paintInfo = async ()=>{
     if(!info) return;
-    info.innerHTML = !Sync.cfg ? 'Écriture non activée.'
-      : (Sync.dirty ? '⏳ <b>Modifications en attente d\'envoi.</b> ' : '✅ Tout est enregistré. ')
-      + (Sync.lastSyncAt ? 'Dernière synchro : ' + new Date(Sync.lastSyncAt).toLocaleTimeString('fr-FR') + '.' : '')
-      + (Sync.lastError ? ' <span style="color:var(--bad)">Erreur : '+esc(Sync.lastError)+'</span>' : '');
+    if(!Sync.cfg){
+      info.innerHTML = '<b style="color:var(--warn)">📵 Cet appareil n\'est pas synchronisé.</b> '
+        + 'Tes saisies restent ici. Colle le jeton ci-dessus pour le relier au coffre.';
+      return;
+    }
+    // comparaison locale ↔ coffre, pour voir tout de suite qui est en retard
+    let distant = '…';
+    try{
+      const r = await Sync.api(Sync.FILE);
+      if(r.ok){
+        const j = await r.json();
+        const c = JSON.parse(decodeURIComponent(escape(atob(j.content.replace(/\n/g,'')))));
+        distant = c.updatedAt ? new Date(c.updatedAt).toLocaleString('fr-FR') : 'inconnu';
+      } else distant = 'HTTP ' + r.status;
+    }catch(e){ distant = 'injoignable'; }
+    info.innerHTML =
+      (Sync.dirty ? '⏳ <b>Modifications en attente d\'envoi.</b><br>' : '✅ Tout est enregistré.<br>')
+      + 'Cet appareil : <b>' + (Store.all.updatedAt ? new Date(Store.all.updatedAt).toLocaleString('fr-FR') : '—') + '</b><br>'
+      + 'Le coffre : <b>' + esc(distant) + '</b>'
+      + (Sync.lastError ? '<br><span style="color:var(--bad)">Erreur : '+esc(Sync.lastError)+'</span>' : '');
   };
   paintInfo();
+  const forceBtn = bg.querySelector('#syncForce');
+  if(forceBtn) forceBtn.addEventListener('click', async ()=>{
+    if(!Sync.cfg){ alert('Active d\'abord la synchronisation (jeton).'); return; }
+    if(!confirm('Remplacer TOUTES les données de cet appareil par celles du coffre ?\n\n'
+      + 'À faire seulement si cet appareil affiche une version périmée.\n'
+      + 'Ce qui n\'a pas encore été envoyé depuis CET appareil sera perdu.')) return;
+    forceBtn.disabled = true; forceBtn.textContent = '…';
+    try{
+      const r = await Sync.api(Sync.FILE);
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      const j = await r.json();
+      const c = JSON.parse(decodeURIComponent(escape(atob(j.content.replace(/\n/g,'')))));
+      Store.all = (c.schemaVersion === 2) ? c : wrapV1(c);
+      Sync._sha = j.sha; Sync.dirty = false;
+      localStorage.setItem(STORE_KEY, JSON.stringify(Store.all));
+      document.dispatchEvent(new CustomEvent('profilechange'));
+      document.dispatchEvent(new CustomEvent('storechange'));
+      Sync.setStatus('ok');
+      alert('Rechargé depuis le coffre ✔');
+      close();
+    }catch(e){ alert('Échec : ' + e.message); }
+    forceBtn.disabled = false; forceBtn.textContent = '⬇️ Tout recharger depuis le coffre';
+  });
   const syncBtn = bg.querySelector('#syncNow');
   if(syncBtn) syncBtn.addEventListener('click', async ()=>{
     syncBtn.disabled = true; syncBtn.textContent = '…';
@@ -754,6 +805,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     document.getElementById('nav-'+p).addEventListener('click', ()=>showPage(p));
   }
   document.getElementById('btnSettings').addEventListener('click', openSettings);
+  document.getElementById('syncBadge').addEventListener('click', openSettings);   // badge cliquable
   document.getElementById('btnProfile').addEventListener('click', openProfiles);
   document.addEventListener('profilechange', refreshProfileButton);
   document.addEventListener('profilechange', applyAppearance);
