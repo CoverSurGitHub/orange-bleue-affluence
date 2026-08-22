@@ -18,16 +18,49 @@ const r0 = x => Math.round(x);
 const r1 = x => Math.round(x*10)/10;
 const norm = s => s.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
 
+let EAU_PAR_NOM = null;      // nom exact CIQUAL → eau (g/100 g), null si non renseignée
 function loadCiqual(){
   if(CIQUAL) return Promise.resolve(CIQUAL);
   if(!ciqualPromise){
     ciqualPromise = fetch('data/ciqual.min.json').then(r=>{
       if(!r.ok) throw new Error('HTTP '+r.status);
       return r.json();
-    }).then(j=>{ CIQUAL=j; return j; })
-      .catch(e=>{ ciqualPromise=null; throw e; });
+    }).then(j=>{
+      CIQUAL=j;
+      // colonne 5 = eau_g (base enrichie) ; absente sur une ancienne version du fichier
+      EAU_PAR_NOM = Object.create(null);
+      for(const f of j.foods) if(typeof f[5] === 'number') EAU_PAR_NOM[f[0]] = f[5];
+      return j;
+    }).catch(e=>{ ciqualPromise=null; throw e; });
   }
   return ciqualPromise;
+}
+
+/* ===== Eau apportée par les aliments =====
+   Teneur officielle CIQUAL (constituant 400, g/100 g ≈ ml, densité 1).
+   - eau100 est mémorisé sur les ingrédients ajoutés depuis la refonte ;
+   - pour les recettes plus anciennes, on retrouve la valeur par le nom exact ;
+   - sans donnée officielle : 0 (jamais d'estimation inventée).
+   Le mode 'drinks' ne retient que les ingrédients liquides (cas du smoothie). */
+function eau100Of(it){
+  if(typeof it.eau100 === 'number') return it.eau100;
+  if(EAU_PAR_NOM && typeof EAU_PAR_NOM[it.nom] === 'number') return EAU_PAR_NOM[it.nom];
+  return null;
+}
+function waterOfItem(it, mode){
+  if(mode === 'off') return 0;
+  if(mode === 'drinks' && !liquidInfo(it.nom)) return 0;
+  const e100 = eau100Of(it);
+  if(e100 === null) return 0;
+  return e100 * it.qty / 100;                 // qty en g → g d'eau ≈ ml
+}
+function waterOfItems(items, mode){
+  return (items||[]).reduce((s,it)=>s + waterOfItem(it, mode), 0);
+}
+/* ingrédients liquides sans teneur officielle : signalés à l'utilisateur */
+function itemsSansEau(items, mode){
+  if(mode === 'off') return [];
+  return (items||[]).filter(it=>(mode==='all' || liquidInfo(it.nom)) && eau100Of(it) === null);
 }
 
 function searchFoods(q){
@@ -42,7 +75,8 @@ function searchFoods(q){
   if(CIQUAL){
     for(const f of CIQUAL.foods){
       if(!match(f[0])) continue;
-      out.push({type:'ciqual', nom:f[0], kcal100:f[1], prot100:f[2]??0, defQty:100});
+      out.push({type:'ciqual', nom:f[0], kcal100:f[1], prot100:f[2]??0,
+                eau100: typeof f[5]==='number' ? f[5] : undefined, defQty:100});
       if(out.length>60) break;
     }
   }
@@ -189,17 +223,36 @@ function bumpRecipe(recipeId, delta){
   let e = j.eaten.find(x=>x.type==='recipe' && x.recipeId===rec.id);
   if(!e && delta>0){
     const t = recipeTotals(rec);                       // snapshot au moment du tap
-    e = {id:uid(), type:'recipe', recipeId:rec.id, nom:rec.nom, kcal:t.kcal, prot:t.prot, count:0};
+    // l'eau est figée elle aussi : modifier la recette ensuite ne réécrit pas le passé
+    e = {id:uid(), type:'recipe', recipeId:rec.id, nom:rec.nom, kcal:t.kcal, prot:t.prot,
+         eauMl: Math.round(waterOfItems(rec.items, window.Water.mode())), count:0};
     j.eaten.push(e);
   }
   if(!e) return;
   e.count += delta;
   const left = e.count;
+
+  // --- eau liée : une entrée d'hydratation par portion ---
+  let eauMsg = '';
+  const mode = window.Water.mode();
+  if(delta > 0 && mode !== 'off'){
+    // recalcul si la portion précédente datait d'un autre mode (ou d'avant la fonctionnalité)
+    const ml = Math.round(waterOfItems(rec.items, mode));
+    if(ml > 0){
+      window.Water.addFromMeal(day, e.id, ml, rec.nom, '🍽️');
+      eauMsg = ' · 💧 +' + ml + ' ml';
+    }
+  } else if(delta < 0){
+    const rendu = left <= 0 ? window.Water.removeAll(day, e.id) : window.Water.removeOne(day, e.id);
+    if(rendu > 0) eauMsg = ' · 💧 −' + rendu + ' ml';
+  }
+
   if(e.count<=0) j.eaten = j.eaten.filter(x=>x!==e);
   touchDay(); render();
+  window.Water.refresh();
   const tot = dayTotals(ensureDay(day));
-  if(delta > 0) toast('🍽️ ' + esc(rec.nom) + ' ×' + left + ' — ' + Math.round(tot.kcal) + ' kcal au total');
-  else toast(left > 0 ? '➖ ' + esc(rec.nom) + ' ×' + left : '➖ ' + esc(rec.nom) + ' retiré');
+  if(delta > 0) toast('🍽️ ' + esc(rec.nom) + ' ×' + left + ' — ' + Math.round(tot.kcal) + ' kcal' + eauMsg);
+  else toast((left > 0 ? '➖ ' + esc(rec.nom) + ' ×' + left : '➖ ' + esc(rec.nom) + ' retiré') + eauMsg);
 }
 
 /* ---- recherche + quantité (pour ingrédients et extras) ---- */
@@ -241,7 +294,8 @@ function foodPicker(title, onPick){
       const f = list[+el.dataset.i];
       const a = askQty(f.nom, null);
       if(!a) return;
-      onPick({id:uid(), nom:f.nom, kcal100:f.kcal100, prot100:f.prot100, ...a});
+      onPick({id:uid(), nom:f.nom, kcal100:f.kcal100, prot100:f.prot100,
+              ...(typeof f.eau100 === 'number' ? {eau100:f.eau100} : {}), ...a});
       close();
     }));
   }
@@ -274,6 +328,9 @@ function editRecipe(id, presetCat){
 
   function draw(){
     const t = recipeTotals(rec);
+    const wMode = window.Water.mode();
+    const wMl = waterOfItems(rec.items, wMode);
+    const sansEau = itemsSansEau(rec.items, wMode);
     bg.innerHTML = `
       <div class="modal">
         <h3>${isNew?'Nouveau plat':'Modifier le plat'}</h3>
@@ -297,7 +354,10 @@ function editRecipe(id, presetCat){
           <div class="tile"><div class="v">${r0(t.kcal)}</div><div class="l">kcal</div></div>
           <div class="tile"><div class="v">${r1(t.prot)}</div><div class="l">g prot</div></div>
           <div class="tile"><div class="v">${r0(t.weight)}</div><div class="l">g au total</div></div>
+          ${wMode!=='off' ? `<div class="tile"><div class="v">${r0(wMl)}</div><div class="l">ml d'eau 💧</div></div>` : ''}
         </div>
+        ${sansEau.length ? `<div class="small muted" style="margin-top:6px">💧 Sans teneur en eau officielle (comptés 0) :
+          ${sansEau.map(i=>esc(i.nom)).join(', ')}</div>` : ''}
         <div class="actions">
           <button class="btn primary" id="rcSave">Enregistrer</button>
           ${!isNew?'<button class="btn danger" id="rcDel">🗑</button>':''}
@@ -434,7 +494,10 @@ function render(){
           <div class="li-row ${n?'sel':''}">
             <div class="grow" data-edit="${rec.id}" title="Modifier">
               <div class="name">${esc(rec.nom)}</div>
-              <div class="sub">${r0(t.kcal)} kcal · ${r1(t.prot)} g prot</div>
+              <div class="sub">${r0(t.kcal)} kcal · ${r1(t.prot)} g prot${
+                (()=>{ const m=window.Water.mode(); if(m==='off') return '';
+                       const ml=r0(waterOfItems(rec.items,m)); return ml>0 ? ' · 💧 '+ml+' ml' : ''; })()
+              }</div>
             </div>
             ${n?`<button class="btn" data-minus="${rec.id}" style="min-width:44px;padding:6px" aria-label="Retirer une portion de ${esc(rec.nom)}">−</button>
                  <b style="min-width:26px;text-align:center" aria-label="${n} portion(s)">×${n}</b>`:''}
@@ -461,9 +524,10 @@ function render(){
   el.querySelectorAll('[data-newmeal]').forEach(b=>b.addEventListener('click', ()=>editRecipe(null, b.dataset.newmeal)));
   el.querySelectorAll('[data-delextra]').forEach(b=>b.addEventListener('click', ()=>{
     const jd = ensureDay(day);                       // re-résolu au clic
+    const rendu = window.Water.removeAll(day, b.dataset.delextra);
     jd.eaten = jd.eaten.filter(e=>e.id!==b.dataset.delextra);
-    touchDay(); render();
-    toast('🗑 Extra retiré');
+    touchDay(); render(); window.Water.refresh();
+    toast('🗑 Extra retiré' + (rendu>0 ? ' · 💧 −' + rendu + ' ml' : ''));
   }));
   el.querySelectorAll('[data-rencat]').forEach(h=>h.addEventListener('click', ()=>{
     const c = Store.data.mealCats.find(x=>x.id===h.dataset.rencat);
@@ -488,11 +552,14 @@ function render(){
   });
   el.querySelector('#rAddExtra').addEventListener('click', ()=>{
     foodPicker('Extra — aliment ponctuel', item=>{
+      const mlEau = Math.round(waterOfItem(item, window.Water.mode()));
       ensureDay(day).eaten.push({id:item.id, type:'food', nom:item.nom, qty:item.qty,
         units:item.units, unitLabel:item.unitLabel, unitOne:item.unitOne, unitMany:item.unitMany,
-        unitEmo:item.unitEmo, ml:item.ml,
+        unitEmo:item.unitEmo, ml:item.ml, eau100:item.eau100, eauMl:mlEau,
         kcal:item.kcal100*item.qty/100, prot:item.prot100*item.qty/100, count:1});
-      touchDay(); render();
+      if(mlEau > 0) window.Water.addFromMeal(day, item.id, mlEau, item.nom, '🥤');
+      touchDay(); render(); window.Water.refresh();
+      if(mlEau > 0) toast('🍴 ' + esc(item.nom) + ' · 💧 +' + mlEau + ' ml');
     });
   });
   cal.refresh();

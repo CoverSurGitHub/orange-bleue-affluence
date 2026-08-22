@@ -1,7 +1,7 @@
 /* ===== Noyau : navigation, calendrier commun, store, sync ===== */
 'use strict';
 
-const APP_VERSION = 'mt4hkeut';   // bumpé à chaque déploiement (voir bump.js)
+const APP_VERSION = 'mt4wyzlx';   // bumpé à chaque déploiement (voir bump.js)
 
 /* Les DONNÉES (mesures d'affluence + coffre perso) vivent sur la branche `data`,
    séparée du code. Raison : chaque commit sur `main` relance une build GitHub
@@ -161,7 +161,9 @@ function defaultContainers(){
 }
 function blankWater(){
   // objectif par défaut 2 L — simple valeur de départ, modifiable, pas une prescription
-  return { goal:{ml:2000, updatedAt:null}, containers:defaultContainers(), log:{} };
+  // fromMeals : 'off' | 'drinks' (défaut : ingrédients liquides seulement) | 'all'
+  return { goal:{ml:2000, updatedAt:null}, fromMeals:{mode:'drinks', updatedAt:null},
+           containers:defaultContainers(), log:{} };
 }
 function blankProfileData(){
   return {
@@ -195,7 +197,8 @@ function normalizeAll(all){
   for(const p of Object.values(all.profiles)){
     p.data = Object.assign(blankProfileData(), p.data || {});
     if(!p.data.water || typeof p.data.water !== 'object' || Array.isArray(p.data.water)) p.data.water = blankWater();
-    else p.data.water = Object.assign({goal:null, containers:[], log:{}}, p.data.water);
+    else p.data.water = Object.assign({goal:null, fromMeals:null, containers:[], log:{}}, p.data.water);
+    if(!p.data.water.fromMeals) p.data.water.fromMeals = {mode:'drinks', updatedAt:null};
   }
   all.shared = Object.assign(blankShared(), all.shared || {});
   return all;
@@ -366,8 +369,9 @@ const Sync = {
     // l'intérieur de chaque jour (deux appareils peuvent en créer le même jour)
     {
       const rw = remote.water || {};
-      const w = Object.assign({goal:null, containers:[], log:{}}, out.water || {});
+      const w = Object.assign({goal:null, fromMeals:null, containers:[], log:{}}, out.water || {});
       w.goal = newer(w.goal, rw.goal || null);
+      w.fromMeals = newer(w.fromMeals, rw.fromMeals || null) || {mode:'drinks', updatedAt:null};
       const cById = Object.fromEntries((w.containers||[]).map(c=>[c.id,c]));
       for(const rc of (rw.containers||[])){
         if(!cById[rc.id] || ts(rc) > ts(cById[rc.id])) cById[rc.id] = rc;

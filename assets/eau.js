@@ -63,6 +63,51 @@ function removeEntry(k, id, silent){
   if(!silent) toast('💧 Consommation retirée');
 }
 
+/* ===== API pour la section Repas =====
+   Les entrées créées ici portent src:'meal' + ref = id de l'entrée du journal.
+   Elles restent des entrées d'eau NORMALES : visibles et supprimables à la main.
+   Toutes les fonctions sont défensives : si l'utilisateur a déjà supprimé
+   l'entrée liée, retirer une portion ne casse rien et ne crée pas de négatif. */
+window.Water = {
+  mode(){
+    const w = Store.data.water;
+    return (w && w.fromMeals && w.fromMeals.mode) || 'drinks';
+  },
+  /* ajoute la part d'eau d'une portion de repas au jour donné */
+  addFromMeal(dayKey, ref, ml, label, emo){
+    ml = Math.round(ml);
+    if(!dayKey || !ref || !Number.isFinite(ml) || ml <= 0) return null;
+    const d = wday(dayKey);
+    const e = {id:uid(), ml, at:nowIso(), cNom:label||'Repas', cEmo:emo||'🍽️',
+               src:'meal', ref, updatedAt:nowIso()};
+    d.entries.push(e); d.updatedAt = nowIso();
+    return e;                                   // Store.save() est fait par l'appelant
+  },
+  /* retire UNE portion liée (la plus récente encore présente) */
+  removeOne(dayKey, ref){
+    const d = Store.data.water.log[dayKey];
+    if(!d || !Array.isArray(d.entries)) return 0;
+    const liees = d.entries.filter(x=>x.src==='meal' && x.ref===ref && !x.deleted);
+    if(!liees.length) return 0;                 // déjà supprimée à la main : on n'insiste pas
+    const e = liees[liees.length-1];
+    e.deleted = true; e.updatedAt = nowIso(); d.updatedAt = nowIso();
+    return e.ml;
+  },
+  /* retire toutes les portions liées (plat entièrement retiré du jour) */
+  removeAll(dayKey, ref){
+    const d = Store.data.water.log[dayKey];
+    if(!d || !Array.isArray(d.entries)) return 0;
+    let n = 0;
+    for(const e of d.entries){
+      if(e.src==='meal' && e.ref===ref && !e.deleted){ e.deleted = true; e.updatedAt = nowIso(); n += e.ml; }
+    }
+    if(n) d.updatedAt = nowIso();
+    return n;
+  },
+  /* rafraîchit l'écran Eau s'il est visible (après une action venue de Repas) */
+  refresh(){ if(document.getElementById('page-eau').classList.contains('active')) render(); }
+};
+
 /* ---- verre SVG (remplissage proportionnel, doublé en texte) ---- */
 function glassSvg(pct){
   const p = Math.max(0, Math.min(1, pct));
@@ -97,6 +142,8 @@ function render(){
   const d = water().log[k];
   const entries = d ? d.entries.filter(e=>!e.deleted) : [];
   const tot = totalOf(k);
+  const mealMl = entries.filter(e=>e.src==='meal').reduce((s,e)=>s+e.ml,0);
+  const mode = window.Water.mode();
   const goal = goalMl();
   const pct = tot/goal;
   const done = tot >= goal;
@@ -138,12 +185,13 @@ function render(){
     </div>
 
     <div class="card">
-      <h2>Consommations ${isToday ? "d'aujourd'hui" : 'du ' + esc(labelForKey(k, false))}</h2>
+      <h2>Consommations ${isToday ? "d'aujourd'hui" : 'du ' + esc(labelForKey(k, false))}
+        ${mealMl ? '<span class="h2sub">— dont ' + fmtMl(mealMl) + ' via les repas</span>' : ''}</h2>
       ${entries.length ? `<div class="list">
         ${entries.slice().reverse().map(e=>`
           <div class="li-row">
             <div class="grow">
-              <div class="name">${esc(e.cEmo||'💧')} ${esc(e.cNom||'Eau')}</div>
+              <div class="name">${esc(e.cEmo||'💧')} ${esc(e.cNom||'Eau')}${e.src==='meal'?' <span class="chip" style="margin:0 0 0 4px;cursor:default">repas</span>':''}</div>
               <div class="sub">${fmtTime.format(new Date(e.at))}</div>
             </div>
             <div class="val">${fmtMl(e.ml)}</div>
@@ -177,6 +225,22 @@ function render(){
           </div>`).join('')}
       </div>
       <div class="small muted" style="margin-top:8px">La ligne d'objectif : ${fmtMl(goal)} par jour. Un jour vert = objectif atteint.</div>
+    </div>
+
+    <div class="card">
+      <h2>🍽️ Eau des repas</h2>
+      <p class="set-note" style="margin:0 0 10px">Quand tu coches un plat dans <b>Repas</b>, son eau peut être
+      comptée ici automatiquement. Chaque ajout reste visible et supprimable dans la liste.</p>
+      <div class="seg" role="group" aria-label="Compter l'eau des repas" style="width:100%">
+        <button class="seg-btn ${mode==='off'?'active':''}" data-wm="off" style="flex:1">Aucune</button>
+        <button class="seg-btn ${mode==='drinks'?'active':''}" data-wm="drinks" style="flex:1">Boissons</button>
+        <button class="seg-btn ${mode==='all'?'active':''}" data-wm="all" style="flex:1">Tout</button>
+      </div>
+      <div class="small muted" style="margin-top:8px">${
+        mode==='off'   ? 'Rien n’est ajouté depuis les repas.' :
+        mode==='drinks'? 'Seuls les <b>ingrédients liquides</b> comptent (eau, lait, jus…) — idéal pour les smoothies.' :
+        '<b>Tous les aliments</b> comptent, via leur teneur en eau officielle CIQUAL (apport hydrique total : le riz cuit est à ~64 % d’eau).'
+      }</div>
     </div>`;
 
   /* --- listeners (re-résolution au clic) --- */
@@ -191,6 +255,13 @@ function render(){
     if(!Number.isFinite(ml) || ml<=0 || ml>5000){ alert('Quantité invalide (1 à 5000 ml).'); return; }
     drink(ml, null, null);
   });
+  sideEl.querySelectorAll('[data-wm]').forEach(b=>b.addEventListener('click', ()=>{
+    Store.data.water.fromMeals = {mode:b.dataset.wm, updatedAt:nowIso()};
+    Store.save(); render();
+    toast(b.dataset.wm==='off' ? '🍽️ Eau des repas désactivée'
+        : b.dataset.wm==='drinks' ? '🍽️ Seules les boissons des repas comptent'
+        : '🍽️ Tous les aliments comptent (teneur CIQUAL)');
+  }));
   mainEl.querySelector('#wGoalBtn').addEventListener('click', editGoal);
   mainEl.querySelector('#wManage').addEventListener('click', openContainers);
   mainEl.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click', ()=>{
