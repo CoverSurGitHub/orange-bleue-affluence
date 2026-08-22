@@ -216,7 +216,12 @@ function eatenCount(j, recipeId){
 }
 /* ⚠️ Toujours re-résoudre depuis le store au moment de l'action : une synchro
    peut avoir remplacé les objets entre l'affichage et le clic. */
-function bumpRecipe(recipeId, delta){
+async function bumpRecipe(recipeId, delta){
+  // La base porte la teneur en eau : on l'attend avant de compter, puis on
+  // re-résout TOUT depuis le store (une synchro a pu passer pendant l'attente).
+  if(delta > 0 && !CIQUAL && window.Water.mode() !== 'off'){
+    try{ await loadCiqual(); }catch(e){}
+  }
   const j = ensureDay(day);
   const rec = Store.data.recipes.find(r=>r.id===recipeId);
   if(!rec) return;
@@ -578,9 +583,25 @@ document.addEventListener('DOMContentLoaded', ()=>{
   });
   cal.setSelected(day);
 
-  document.addEventListener('pageshow', e=>{ if(e.detail.page==='repas'){ loadCiqual().catch(()=>{}); render(); } });
+  document.addEventListener('pageshow', e=>{
+    if(e.detail.page!=='repas') return;
+    render();                                   // affichage immédiat
+    // la teneur en eau des recettes déjà créées vient de la base : re-rendre une
+    // fois qu'elle est chargée, sinon la ligne 💧 resterait absente au 1er affichage
+    loadCiqual().then(()=>{
+      if(document.getElementById('page-repas').classList.contains('active')) render();
+    }).catch(()=>{});
+  });
   document.addEventListener('storechange', ()=>{ if(document.getElementById('page-repas').classList.contains('active')) render(); });
   render();
+  // Au démarrage, app.js a déjà émis 'pageshow' avant que ce listener existe :
+  // si Repas est la page ouverte, on précharge la base et on re-rend pour que
+  // la teneur en eau des recettes apparaisse sans attendre un changement d'onglet.
+  if(document.getElementById('page-repas').classList.contains('active')){
+    loadCiqual().then(()=>{
+      if(document.getElementById('page-repas').classList.contains('active')) render();
+    }).catch(()=>{});
+  }
 });
 
 })();
