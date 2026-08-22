@@ -194,8 +194,12 @@ function bumpRecipe(recipeId, delta){
   }
   if(!e) return;
   e.count += delta;
+  const left = e.count;
   if(e.count<=0) j.eaten = j.eaten.filter(x=>x!==e);
   touchDay(); render();
+  const tot = dayTotals(ensureDay(day));
+  if(delta > 0) toast('🍽️ ' + esc(rec.nom) + ' ×' + left + ' — ' + Math.round(tot.kcal) + ' kcal au total');
+  else toast(left > 0 ? '➖ ' + esc(rec.nom) + ' ×' + left : '➖ ' + esc(rec.nom) + ' retiré');
 }
 
 /* ---- recherche + quantité (pour ingrédients et extras) ---- */
@@ -355,7 +359,9 @@ function editRecipe(id, presetCat){
 /* ---- rendu principal ---- */
 function render(){
   const j = ensureDay(day);
-  const el = document.getElementById('rMain');
+  const side = document.getElementById('rSide');
+  const lib  = document.getElementById('rLib');
+  const page = document.getElementById('page-repas');
   const tdee = Store.data.tdee;
   const targets = (window.TDEE && tdee) ? window.TDEE.targets(tdee) : null;
   const tot = dayTotals(j);
@@ -425,28 +431,30 @@ function render(){
           const t = recipeTotals(rec);
           const n = eatenCount(j, rec.id);
           return `
-          <div class="li-row" ${n?'style="outline:1.5px solid var(--line)"':''}>
+          <div class="li-row ${n?'sel':''}">
             <div class="grow" data-edit="${rec.id}" title="Modifier">
               <div class="name">${esc(rec.nom)}</div>
               <div class="sub">${r0(t.kcal)} kcal · ${r1(t.prot)} g prot</div>
             </div>
-            ${n?`<button class="btn" data-minus="${rec.id}" style="min-width:44px;padding:6px">−</button>
-                 <b style="min-width:26px;text-align:center">×${n}</b>`:''}
-            <button class="btn ${n?'':'primary'}" data-plus="${rec.id}" style="min-width:48px;padding:6px 10px">＋</button>
+            ${n?`<button class="btn" data-minus="${rec.id}" style="min-width:44px;padding:6px" aria-label="Retirer une portion de ${esc(rec.nom)}">−</button>
+                 <b style="min-width:26px;text-align:center" aria-label="${n} portion(s)">×${n}</b>`:''}
+            <button class="btn ${n?'':'primary'}" data-plus="${rec.id}" style="min-width:48px;padding:6px 10px" aria-label="Ajouter une portion de ${esc(rec.nom)}">＋</button>
           </div>`; }).join('')
-        : '<div class="small muted" style="padding:6px 2px">Aucun plat — crée le premier 👇</div>'}
+        : '<div class="empty" style="padding:14px 4px"><span class="emo">🍳</span>Aucun plat ici — crée le premier ci-dessous.</div>'}
       </div>
       <button class="btn" data-newmeal="${c.id}" style="width:100%;margin-top:8px">+ Nouveau plat</button>
     </div>`;
   }).join('');
 
-  el.innerHTML = gauges + extrasHtml + catsHtml + `
+  side.innerHTML = gauges + extrasHtml;
+  lib.innerHTML = catsHtml + `
     <div style="display:flex;gap:8px">
-      <button class="btn" id="rAddCat" style="flex:1">+ Catégorie</button>
-      <button class="btn" id="rAddExtra" style="flex:1">🍴 + Extra (aliment ponctuel)</button>
+      <button class="btn ghost" id="rAddCat" style="flex:1">+ Catégorie</button>
+      <button class="btn ghost" id="rAddExtra" style="flex:1">🍴 + Extra (aliment ponctuel)</button>
     </div>`;
 
-  /* listeners */
+  /* listeners (sur toute la page : jauges à gauche, bibliothèque à droite) */
+  const el = page;
   el.querySelectorAll('[data-plus]').forEach(b=>b.addEventListener('click', ()=>bumpRecipe(b.dataset.plus, +1)));
   el.querySelectorAll('[data-minus]').forEach(b=>b.addEventListener('click', ()=>bumpRecipe(b.dataset.minus, -1)));
   el.querySelectorAll('[data-edit]').forEach(d=>d.addEventListener('click', ()=>editRecipe(d.dataset.edit)));
@@ -455,6 +463,7 @@ function render(){
     const jd = ensureDay(day);                       // re-résolu au clic
     jd.eaten = jd.eaten.filter(e=>e.id!==b.dataset.delextra);
     touchDay(); render();
+    toast('🗑 Extra retiré');
   }));
   el.querySelectorAll('[data-rencat]').forEach(h=>h.addEventListener('click', ()=>{
     const c = Store.data.mealCats.find(x=>x.id===h.dataset.rencat);

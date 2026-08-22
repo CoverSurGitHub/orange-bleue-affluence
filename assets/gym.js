@@ -12,9 +12,21 @@ const keyOfDate = dt => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(
 
 function toggle(k){
   if(k > todayKey()) return;                       // pas de séance dans le futur
-  Store.data.gym[k] = {go: !went(k), updatedAt: nowIso()};
+  const on = !went(k);
+  Store.data.gym[k] = {go: on, updatedAt: nowIso()};
   Store.save();
   render();
+  if(on && k === todayKey()){
+    // petit burst de fierté sur le bouton (coupé par prefers-reduced-motion via CSS)
+    const btn = document.getElementById('gToday');
+    const b = document.createElement('span');
+    b.className = 'burst'; b.textContent = '💪✨'; b.setAttribute('aria-hidden','true');
+    btn.appendChild(b); setTimeout(()=>b.remove(), 750);
+    const st = stats();
+    toast('💪 Séance notée — ' + st.thisWeek + ' cette semaine, ' + st.streak + ' semaine' + (st.streak>1?'s':'') + ' d’affilée');
+  } else if(on){
+    toast('💪 Séance du ' + labelForKey(k, false) + ' notée');
+  }
 }
 
 /* ---- statistiques ---- */
@@ -59,7 +71,8 @@ function render(){
   const btn = document.getElementById('gToday');
   const done = went(today);
   btn.classList.toggle('done', done);
-  btn.textContent = done ? '✅ Séance faite aujourd\'hui — annuler ?' : '💪 J\'y suis allé aujourd\'hui';
+  btn.setAttribute('aria-pressed', done);
+  btn.textContent = done ? '✅ Séance faite aujourd’hui — retirer ?' : '💪 J’y suis allé aujourd’hui';
 
   // tuiles
   document.getElementById('gTiles').innerHTML = `
@@ -75,14 +88,14 @@ function render(){
   const firstDow = (new Date(y, m-1, 1).getDay()+6)%7;
   const nDays = new Date(y, m, 0).getDate();
   let cells = ['L','M','M','J','V','S','D'].map(d=>`<div class="cal-dow">${d}</div>`).join('');
-  for(let i=0;i<firstDow;i++) cells += '<div class="cal-day empty"></div>';
+  for(let i=0;i<firstDow;i++) cells += '<span class="cal-day empty" aria-hidden="true"></span>';
   for(let d=1; d<=nDays; d++){
     const k = dayKeyOf(y,m,d);
     const cls = ['cal-day'];
     if(k > today) cls.push('future');
     if(went(k)) cls.push('gym');
     if(k === today) cls.push('today');
-    cells += `<div class="${cls.join(' ')}" data-k="${k>today?'':k}">${d}</div>`;
+    cells += `<button type="button" class="${cls.join(' ')}" data-k="${k>today?'':k}" ${k>today?'disabled':''} aria-label="${labelForKey(k)}${went(k)?' — séance faite':''}" aria-pressed="${went(k)}">${d}</button>`;
   }
   const grid = document.getElementById('gGrid');
   grid.innerHTML = cells;
@@ -99,7 +112,7 @@ function renderHeat(year){
   const jan1 = new Date(year, 0, 1);
   const start = addDays(jan1, -(((jan1.getDay()+6)%7)));   // lundi de la 1re semaine
   const end   = new Date(year, 11, 31);
-  let html = '', months = '', lastMonth = -1, week = 0;
+  let html = '', months = '', lastMonth = -1;
   for(let dt = new Date(start); dt <= end; dt = addDays(dt,1)){
     const k = keyOfDate(dt);
     const inYear = dt.getFullYear() === year;
@@ -110,7 +123,6 @@ function renderHeat(year){
       const mo = dt.getMonth();
       months += `<span style="width:10px">${inYear && mo!==lastMonth ? ['J','F','M','A','M','J','J','A','S','O','N','D'][mo] : ''}</span>`;
       if(inYear) lastMonth = mo;
-      week++;
     }
   }
   const wrap = document.getElementById('gHeat');
@@ -138,6 +150,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
   document.addEventListener('pageshow', e=>{ if(e.detail.page==='salle') render(); });
   document.addEventListener('storechange', ()=>{ if(document.getElementById('page-salle').classList.contains('active')) render(); });
+  document.addEventListener('profilechange', ()=>{ if(document.getElementById('page-salle').classList.contains('active')) render(); });
   render();
 });
 

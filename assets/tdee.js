@@ -96,6 +96,7 @@ function render(){
     };
     Store.save();
     renderResults();
+    toast('🔥 Besoins recalculés — cible reliée aux jauges Repas');
   });
   renderResults();
 }
@@ -103,10 +104,12 @@ function render(){
 function renderResults(){
   const t = Store.data.tdee;
   const out = document.getElementById('tRes');
-  if(!t){ out.innerHTML=''; return; }
+  const hint = '<div class="card"><div class="empty"><span class="emo">🔥</span><b>Pas encore de calcul.</b><br>' +
+               'Remplis le formulaire puis appuie sur Calculer — la cible kcal alimente les jauges de la section Repas.</div></div>';
+  if(!t){ out.innerHTML = hint; return; }
   const kg = effectiveWeight(t);
   const tg = window.TDEE.targets(t);
-  if(!tg){ out.innerHTML=''; return; }
+  if(!tg){ out.innerHTML = hint; return; }
   const r0 = x=>Math.round(x);
   const hb = bmrHB(t.sexe, kg, t.taille, t.age);
   const km = t.pctMG ? bmrKM(kg, t.pctMG) : null;

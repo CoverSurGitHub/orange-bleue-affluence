@@ -3,148 +3,174 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#0f1024" />
+<meta name="theme-color" content="#0e0f22" />
 <title>Ma salle & moi — Orgeval</title>
-<link rel="stylesheet" href="assets/styles.css?v=mshugh6g" />
-<link rel="stylesheet" href="assets/cursor.css?v=mshugh6g" />
+<link rel="stylesheet" href="assets/styles.css?v=mt4hhnli" />
+<link rel="stylesheet" href="assets/cursor.css?v=mt4hhnli" />
 </head>
 <body>
+<div id="app">
+
+<aside class="side">
+  <div class="brand">
+    <div class="t">🏋️ Ma salle &amp; moi</div>
+    <div class="s">L'Orange Bleue · Orgeval</div>
+  </div>
+  <nav class="nav" aria-label="Sections">
+    <button id="nav-salle"><span class="ico" aria-hidden="true">🏋️</span>Salle</button>
+    <button id="nav-poids"><span class="ico" aria-hidden="true">⚖️</span>Poids</button>
+    <button id="nav-repas"><span class="ico" aria-hidden="true">🍽️</span>Repas</button>
+    <button id="nav-eau"><span class="ico" aria-hidden="true">💧</span>Eau</button>
+    <button id="nav-tdee"><span class="ico" aria-hidden="true">🔥</span>TDEE</button>
+  </nav>
+  <div class="sidefoot">Affluence captée toutes les 10 min<br>CIQUAL 2020 · ANSES</div>
+</aside>
+
+<div class="content">
 
 <header class="hdr">
   <div>
     <h1>🏋️ Ma salle &amp; moi</h1>
-    <div class="sub">L'Orange Bleue Orgeval · <span id="syncBadge"></span></div>
+    <div class="sub">L'Orange Bleue Orgeval · <span id="syncBadge" role="button" tabindex="0" aria-label="État de synchronisation — ouvrir les réglages"></span></div>
   </div>
-  <div style="display:flex;gap:6px;align-items:center">
-    <button class="btn" id="btnProfile" title="Changer de profil">👤 <span id="profName">–</span> ▾</button>
-    <button class="iconbtn" id="btnSettings" title="Réglages">⚙️</button>
+  <div class="hdr-actions">
+    <button class="btn" id="btnProfile" title="Changer de profil" aria-label="Changer de profil">👤 <span id="profName">–</span> ▾</button>
+    <button class="iconbtn" id="btnSettings" title="Réglages" aria-label="Réglages">⚙️</button>
   </div>
 </header>
 
-<!-- ===================== SALLE (affluence) ===================== -->
+<!-- ===================== SALLE (affluence + séances) ===================== -->
 <main class="page" id="page-salle">
-  <div class="live">
-    <div>
-      <div class="num" id="sLiveNum">–</div>
-      <div class="lbl"><span class="dot"></span><span id="sLiveWhen">chargement…</span></div>
-    </div>
-    <div style="flex:1"></div>
-    <div style="text-align:right">
-      <div class="lbl">Pic du jour</div>
-      <div style="font-size:1.5rem;font-weight:700" id="sPeak">–</div>
-      <div class="lbl" id="sPeakWhen"></div>
-    </div>
-  </div>
-
-  <div class="tabs">
-    <button class="tab active" id="sTabMeasured">📏 Mesuré</button>
-    <button class="tab" id="sTabCompare">🔀 Comparer</button>
-  </div>
-
-  <div class="card">
-    <div class="row">
-      <div class="stats">
-        <span>Moy <b id="sAvg">–</b></span>
-        <span>Max <b id="sMax">–</b></span>
-        <span id="sNwrap">Mesures <b id="sN">–</b></span>
+  <div class="cols nat">
+  <div class="col-a">
+    <div class="hero">
+      <div>
+        <div class="num" id="sLiveNum" aria-live="polite">–</div>
+        <div class="lbl"><span class="dot" id="sLiveDot"></span><span id="sLiveWhen">chargement…</span></div>
+        <div style="margin-top:8px"><span class="trend flat" id="sTrend" hidden></span></div>
       </div>
-      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <span id="sGranWrap" class="seg">
-          <button class="seg-btn active" id="sGranH">Heures</button>
-          <button class="seg-btn" id="sGranM">Minutes</button>
-        </span>
-        <span class="calwrap" id="sCalWrap">
-          <button class="btn" id="sDayBtn">📅 <span id="sDayLabel">–</span></button>
-          <div id="sDayCal" class="calpop" style="display:none"></div>
-        </span>
-        <select id="sCmpType" style="display:none">
-          <option value="days">Jours d'une semaine</option>
-          <option value="weekday">Même jour, plusieurs semaines</option>
-          <option value="weeks">Semaines entières</option>
-        </select>
-        <select id="sWeekSel" style="display:none"></select>
-        <select id="sCmpWd" style="display:none"></select>
-        <button class="btn" id="sRefresh" title="Actualiser">↻</button>
+      <div style="flex:1"></div>
+      <div class="aux">
+        <div class="lbl">Pic du jour</div>
+        <div class="v" id="sPeak">–</div>
+        <div class="lbl" id="sPeakWhen"></div>
       </div>
     </div>
-    <div class="chartwrap" id="sChartWrap">
-      <canvas class="chart" id="sChart"></canvas>
-      <div id="sTip" class="tip" style="display:none"></div>
-    </div>
-    <div class="empty" id="sEmpty" style="display:none"></div>
-    <div id="sLegend" class="legend" style="display:none"></div>
-    <div id="sCmpNote" class="small muted" style="display:none;margin-top:8px">
-      Comparaison construite sur tes mesures réelles — elle s'enrichit chaque semaine.
-    </div>
-  </div>
-  <!-- ---- Mes séances ---- -->
-  <div class="card">
-    <h2>📆 Mes séances</h2>
-    <button class="btn primary" id="gToday" style="width:100%;font-size:1rem;padding:14px">
-      💪 J'y suis allé aujourd'hui
-    </button>
-    <div class="tiles" id="gTiles" style="margin-top:12px"></div>
 
-    <div class="cal-head" style="margin:4px 0 8px">
-      <button class="cal-nav" id="gPrev" type="button">‹</button>
-      <b id="gMonthLabel"></b>
-      <button class="cal-nav" id="gNext" type="button">›</button>
+    <div class="tabs" role="tablist" aria-label="Vues de l'affluence">
+      <button class="tab active" id="sTabMeasured" role="tab" aria-selected="true">📏 Mesuré</button>
+      <button class="tab" id="sTabCompare" role="tab" aria-selected="false">🔀 Comparer</button>
     </div>
-    <div class="cal-grid" id="gGrid"></div>
-    <div class="small muted center" style="margin-top:8px">Tape un jour pour le marquer ou l'enlever</div>
 
-    <div style="margin-top:16px">
-      <div class="row" style="margin-bottom:6px">
-        <b class="small" id="gYearLabel"></b>
-        <span class="small muted" id="gYearCount"></span>
+    <div class="card">
+      <div class="row">
+        <div class="stats">
+          <span>Moy <b id="sAvg">–</b></span>
+          <span>Max <b id="sMax">–</b></span>
+          <span id="sNwrap">Mesures <b id="sN">–</b></span>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <span id="sGranWrap" class="seg" role="group" aria-label="Granularité">
+            <button class="seg-btn active" id="sGranH">Heures</button>
+            <button class="seg-btn" id="sGranM">Minutes</button>
+          </span>
+          <span class="calwrap" id="sCalWrap">
+            <button class="btn" id="sDayBtn" aria-label="Choisir le jour affiché">📅 <span id="sDayLabel">–</span></button>
+            <div id="sDayCal" class="calpop" style="display:none"></div>
+          </span>
+          <select id="sCmpType" style="display:none" aria-label="Type de comparaison">
+            <option value="days">Jours d'une semaine</option>
+            <option value="weekday">Même jour, plusieurs semaines</option>
+            <option value="weeks">Semaines entières</option>
+          </select>
+          <select id="sWeekSel" style="display:none" aria-label="Semaine"></select>
+          <select id="sCmpWd" style="display:none" aria-label="Jour de la semaine"></select>
+          <button class="btn" id="sRefresh" title="Actualiser" aria-label="Actualiser les mesures">↻</button>
+        </div>
       </div>
-      <div class="heatwrap"><div class="heat" id="gHeat"></div></div>
+      <div class="chartwrap" id="sChartWrap">
+        <canvas class="chart" id="sChart" role="img" aria-label="Courbe d'affluence"></canvas>
+        <div id="sTip" class="tip" style="display:none"></div>
+      </div>
+      <div class="empty" id="sEmpty" style="display:none"></div>
+      <div id="sLegend" class="legend" style="display:none"></div>
+      <div id="sCmpNote" class="small muted" style="display:none;margin-top:8px">
+        Comparaison construite sur tes mesures réelles — elle s'enrichit chaque semaine.
+      </div>
     </div>
+    <div class="foot">Affluence : API publique L'Orange Bleue · capté toutes les 10 min · <span id="sLastUpd"></span></div>
   </div>
 
-  <div class="foot">Affluence : API publique L'Orange Bleue · capté toutes les 10 min · <span id="sLastUpd"></span></div>
+  <div class="col-b">
+    <!-- ---- Mes séances ---- -->
+    <div class="card">
+      <h2>📆 Mes séances</h2>
+      <button class="btn primary big" id="gToday">💪 J'y suis allé aujourd'hui</button>
+      <div class="tiles" id="gTiles" style="margin-top:12px"></div>
+
+      <div class="cal-head" style="margin:4px 0 8px">
+        <button class="cal-nav" id="gPrev" type="button" aria-label="Mois précédent">‹</button>
+        <b id="gMonthLabel"></b>
+        <button class="cal-nav" id="gNext" type="button" aria-label="Mois suivant">›</button>
+      </div>
+      <div class="cal-grid" id="gGrid"></div>
+      <div class="small muted center" style="margin-top:8px">Tape un jour pour le marquer ou l'enlever</div>
+
+      <div style="margin-top:16px">
+        <div class="row" style="margin-bottom:6px">
+          <b class="small" id="gYearLabel"></b>
+          <span class="small muted" id="gYearCount"></span>
+        </div>
+        <div class="heatwrap"><div class="heat" id="gHeat" role="img" aria-label="Régularité annuelle des séances"></div></div>
+      </div>
+    </div>
+  </div>
+  </div>
 </main>
 
 <!-- ===================== POIDS ===================== -->
 <main class="page" id="page-poids">
-  <div class="card">
-    <h2>⚖️ Nouvelle pesée</h2>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <input type="number" id="pKg" inputmode="decimal" step="0.1" min="20" max="400" placeholder="Poids (kg)" style="flex:1;min-width:110px">
-      <span class="calwrap">
-        <button class="btn" id="pDayBtn">📅 <span id="pDayLabel">–</span></button>
-        <div id="pDayCal" class="calpop" style="display:none"></div>
-      </span>
-      <button class="btn primary" id="pSave">Enregistrer</button>
+  <div class="cols">
+  <div class="col-b">
+    <div class="card">
+      <h2>⚖️ Nouvelle pesée</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input type="number" id="pKg" inputmode="decimal" step="0.1" min="20" max="400" placeholder="Poids (kg)" aria-label="Poids en kilogrammes" style="flex:1;min-width:110px">
+        <span class="calwrap">
+          <button class="btn" id="pDayBtn" aria-label="Date de la pesée">📅 <span id="pDayLabel">–</span></button>
+          <div id="pDayCal" class="calpop" style="display:none"></div>
+        </span>
+        <button class="btn primary" id="pSave">Enregistrer</button>
+      </div>
     </div>
+    <div class="tiles" id="pTiles"></div>
   </div>
 
-  <div class="tiles" id="pTiles"></div>
+  <div class="col-a">
+    <div class="card">
+      <div class="row">
+        <span class="seg" id="pPeriod" role="group" aria-label="Période affichée">
+          <button class="seg-btn active" data-p="30">30 j</button>
+          <button class="seg-btn" data-p="90">90 j</button>
+          <button class="seg-btn" data-p="0">Tout</button>
+        </span>
+        <button class="btn" id="pGoal">🎯 Objectif</button>
+      </div>
+      <div class="chartwrap" id="pChartWrap">
+        <canvas class="chart" id="pChart" role="img" aria-label="Courbe d'évolution du poids"></canvas>
+        <div id="pTip" class="tip" style="display:none"></div>
+      </div>
+      <div class="empty" id="pEmpty" style="display:none">
+        <span class="emo">⚖️</span><b>Aucune pesée pour l'instant.</b><br>Enregistre la première ci-dessus — la courbe démarre dès deux points.
+      </div>
+      <div class="legend" id="pLegend" style="margin-top:8px"></div>
+    </div>
 
-  <div class="card">
-    <div class="row">
-      <span class="seg" id="pPeriod">
-        <button class="seg-btn active" data-p="30">30 j</button>
-        <button class="seg-btn" data-p="90">90 j</button>
-        <button class="seg-btn" data-p="0">Tout</button>
-      </span>
-      <button class="btn" id="pGoal">🎯 Objectif</button>
-    </div>
-    <div class="chartwrap" id="pChartWrap">
-      <canvas class="chart" id="pChart"></canvas>
-      <div id="pTip" class="tip" style="display:none"></div>
-    </div>
-    <div class="empty" id="pEmpty" style="display:none">Aucune pesée — enregistre la première ci-dessus 💪</div>
-    <div class="legend" style="margin-top:8px">
-      <span class="li"><span class="sw" style="background:#5385ed"></span>Pesées</span>
-      <span class="li"><span class="sw" style="background:#37c978"></span>Moyenne 7 j</span>
-      <span class="li"><span class="sw" style="background:#ff7a1a"></span>Objectif</span>
+    <div class="card">
+      <h2>Dernières pesées</h2>
+      <div class="list" id="pList"></div>
     </div>
   </div>
-
-  <div class="card">
-    <h2>Dernières pesées</h2>
-    <div class="list" id="pList"></div>
   </div>
 </main>
 
@@ -153,50 +179,56 @@
   <div class="row" style="padding:0 2px">
     <h2 style="margin:0;font-size:1rem">🍽️ Mes repas</h2>
     <span class="calwrap" id="rCalWrap">
-      <button class="btn" id="rDayBtn">📅 <span id="rDayLabel">–</span></button>
+      <button class="btn" id="rDayBtn" aria-label="Jour du journal alimentaire">📅 <span id="rDayLabel">–</span></button>
       <div id="rDayCal" class="calpop" style="display:none"></div>
     </span>
   </div>
-  <div id="rMain"></div>
+  <div class="cols">
+    <div class="col-b" id="rSide"></div>
+    <div class="col-a" id="rLib"></div>
+  </div>
   <div class="foot">Valeurs nutritionnelles : table CIQUAL 2020 — ANSES (officielle) · calculs pour 100 g</div>
+</main>
+
+<!-- ===================== EAU ===================== -->
+<main class="page" id="page-eau">
+  <div class="row" style="padding:0 2px">
+    <h2 style="margin:0;font-size:1rem">💧 Hydratation</h2>
+    <span class="calwrap" id="wCalWrap">
+      <button class="btn" id="wDayBtn" aria-label="Jour affiché">📅 <span id="wDayLabel">–</span></button>
+      <div id="wDayCal" class="calpop" style="display:none"></div>
+    </span>
+  </div>
+  <div class="cols nat">
+    <div class="col-a" id="wMain"></div>
+    <div class="col-b" id="wSide"></div>
+  </div>
 </main>
 
 <!-- ===================== TDEE ===================== -->
 <main class="page" id="page-tdee">
-  <div class="card">
-    <h2>🔥 Mes besoins (TDEE)</h2>
-    <div id="tForm"></div>
+  <div class="cols nat">
+    <div class="col-a">
+      <div class="card">
+        <h2>🔥 Mes besoins (TDEE)</h2>
+        <div id="tForm"></div>
+      </div>
+    </div>
+    <div class="col-b" id="tRes"></div>
   </div>
-  <div id="tRes"></div>
 </main>
 
-<!-- ===================== NAV ===================== -->
-<!-- ===================== NOUS ===================== -->
-<main class="page" id="page-nous">
-  <div class="tabs">
-    <button class="tab active" id="nTabMsg">💬 Messages</button>
-    <button class="tab" id="nTabDates">💘 Nos dates</button>
-    <button class="btn" id="nRefresh" title="Actualiser" style="margin-left:auto">↻</button>
-  </div>
-  <div id="nMsg"></div>
-  <div id="nDates" style="display:none"></div>
-  <div class="foot">Petit courrier privé entre vos deux profils · se met à jour ~toutes les 45 s sur cette page</div>
-</main>
+</div><!-- /.content -->
+</div><!-- /#app -->
 
-<nav class="nav">
-  <button id="nav-salle"><span class="ico">🏋️</span>Salle</button>
-  <button id="nav-poids"><span class="ico">⚖️</span>Poids</button>
-  <button id="nav-repas"><span class="ico">🍽️</span>Repas</button>
-  <button id="nav-tdee"><span class="ico">🔥</span>TDEE</button>
-  <button id="nav-nous" style="position:relative"><span class="ico">💌</span>Nous<span class="navdot" id="nousDot" style="display:none"></span></button>
-</nav>
+<div id="toasts" aria-live="polite" aria-atomic="false"></div>
 
-<script src="assets/app.js?v=mshugh6g"></script>
-<script src="assets/salle.js?v=mshugh6g"></script>
-<script src="assets/gym.js?v=mshugh6g"></script>
-<script src="assets/poids.js?v=mshugh6g"></script>
-<script src="assets/repas.js?v=mshugh6g"></script>
-<script src="assets/tdee.js?v=mshugh6g"></script>
-<script src="assets/nous.js?v=mshugh6g"></script>
+<script src="assets/app.js?v=mt4hhnli"></script>
+<script src="assets/salle.js?v=mt4hhnli"></script>
+<script src="assets/gym.js?v=mt4hhnli"></script>
+<script src="assets/poids.js?v=mt4hhnli"></script>
+<script src="assets/repas.js?v=mt4hhnli"></script>
+<script src="assets/eau.js?v=mt4hhnli"></script>
+<script src="assets/tdee.js?v=mt4hhnli"></script>
 </body>
 </html>

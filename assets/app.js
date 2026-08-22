@@ -1,7 +1,7 @@
 /* ===== Noyau : navigation, calendrier commun, store, sync ===== */
 'use strict';
 
-const APP_VERSION = 'mshugh6g';   // bumpé à chaque déploiement (voir bump.js)
+const APP_VERSION = 'mt4hhnli';   // bumpé à chaque déploiement (voir bump.js)
 
 /* Les DONNÉES (mesures d'affluence + coffre perso) vivent sur la branche `data`,
    séparée du code. Raison : chaque commit sur `main` relance une build GitHub
@@ -22,13 +22,31 @@ function labelForKey(k, long=true){ return (long?fmtDayLong:fmtDayShort).format(
 function esc(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 function nowIso(){ return new Date().toISOString(); }
+/* couleur du thème courant, pour les canvas (grille, labels…) */
+function cssVar(name){ return getComputedStyle(document.body).getPropertyValue(name).trim(); }
+/* petit toast de confirmation, avec action optionnelle (ex : Annuler) */
+function toast(msg, opts={}){
+  const zone = document.getElementById('toasts');
+  if(!zone) return ()=>{};
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = '<span>'+msg+'</span>' + (opts.action ? '<button type="button">'+esc(opts.action.label)+'</button>' : '');
+  if(opts.action) el.querySelector('button').addEventListener('click', ()=>{ opts.action.fn(); kill(); });
+  zone.appendChild(el);
+  while(zone.children.length > 3) zone.firstChild.remove();
+  const t = setTimeout(kill, opts.ms || 2600);
+  function kill(){ clearTimeout(t); el.classList.add('out'); setTimeout(()=>el.remove(), 230); }
+  return kill;
+}
 
 /* ===== Navigation entre pages ===== */
-const PAGES = ['salle','poids','repas','tdee','nous'];
+const PAGES = ['salle','poids','repas','eau','tdee'];
 function showPage(name){
   for(const p of PAGES){
     document.getElementById('page-'+p).classList.toggle('active', p===name);
-    document.getElementById('nav-'+p).classList.toggle('active', p===name);
+    const nb = document.getElementById('nav-'+p);
+    nb.classList.toggle('active', p===name);
+    if(p===name) nb.setAttribute('aria-current','page'); else nb.removeAttribute('aria-current');
   }
   localStorage.setItem('ob.lastPage', name);
   document.dispatchEvent(new CustomEvent('pageshow', {detail:{page:name}}));
@@ -63,7 +81,7 @@ function createCalendar(opts){
     const firstDow = (new Date(y, m-1, 1).getDay()+6)%7;
     const nDays = new Date(y, m, 0).getDate();
     let cells = '';
-    for(let i=0;i<firstDow;i++) cells += '<div class="cal-day empty"></div>';
+    for(let i=0;i<firstDow;i++) cells += '<span class="cal-day empty" aria-hidden="true"></span>';
     for(let d=1; d<=nDays; d++){
       const key = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
       const selectable = opts.isSelectable ? opts.isSelectable(key) : true;
@@ -73,7 +91,7 @@ function createCalendar(opts){
       if(marked) cls.push('mark');
       if(key===state.selected) cls.push('selected');
       if(key===today) cls.push('today');
-      cells += `<div class="${cls.join(' ')}" data-day="${selectable?key:''}">${d}${marked?'<span class="dot2"></span>':''}</div>`;
+      cells += `<button type="button" class="${cls.join(' ')}" data-day="${selectable?key:''}" ${selectable?'':'disabled'} aria-label="${labelForKey(key)}${marked?' — données présentes':''}">${d}${marked?'<span class="dot2"></span>':''}</button>`;
     }
     opts.popup.innerHTML = `
       <div class="cal-head">
@@ -131,6 +149,20 @@ function createCalendar(opts){
 const STORE_KEY  = 'ob.perso.v1';     // conteneur (nom conservé pour la migration)
 const ACTIVE_KEY = 'ob.activeProfile';
 
+function defaultContainers(){
+  // ids stables : créés à l'identique sur chaque appareil → fusion sans doublon
+  return [
+    {id:'wc-verre',  nom:'Verre',  ml:250,  emo:'🥛', fav:true,  ordre:1, updatedAt:null},
+    {id:'wc-tasse',  nom:'Tasse',  ml:200,  emo:'☕', fav:false, ordre:2, updatedAt:null},
+    {id:'wc-shaker', nom:'Shaker', ml:500,  emo:'🥤', fav:true,  ordre:3, updatedAt:null},
+    {id:'wc-gourde', nom:'Gourde', ml:750,  emo:'🍶', fav:true,  ordre:4, updatedAt:null},
+    {id:'wc-carafe', nom:'Carafe', ml:1000, emo:'🫗', fav:false, ordre:5, updatedAt:null},
+  ];
+}
+function blankWater(){
+  // objectif par défaut 2 L — simple valeur de départ, modifiable, pas une prescription
+  return { goal:{ml:2000, updatedAt:null}, containers:defaultContainers(), log:{} };
+}
 function blankProfileData(){
   return {
     weights: {},          // "YYYY-MM-DD" -> {kg, updatedAt}
@@ -141,6 +173,7 @@ function blankProfileData(){
     mealCats: [ {id:'mc1', nom:'Repas'}, {id:'mc2', nom:'Collations'} ],
     mealCatsUpdatedAt: null,
     tdee: null,
+    water: blankWater(),  // hydratation : objectif + contenants + consommations par jour
     settings: {}
   };
 }
@@ -218,6 +251,10 @@ const Store = {
     if(!this.all.profiles || !Object.keys(this.all.profiles).length) this.all = emptyContainer();
     for(const p of Object.values(this.all.profiles)){
       p.data = Object.assign(blankProfileData(), p.data || {});
+      // migration douce : profil d'avant l'hydratation → défauts complets ;
+      // profil déjà migré → on complète sans jamais recréer un contenant supprimé
+      if(!p.data.water || typeof p.data.water !== 'object' || Array.isArray(p.data.water)) p.data.water = blankWater();
+      else p.data.water = Object.assign({goal:null, containers:[], log:{}}, p.data.water);
     }
     this.all.shared = Object.assign(blankShared(), this.all.shared || {});
     // fige la migration tout de suite (évite de la refaire à chaque ouverture)
@@ -321,6 +358,31 @@ const Sync = {
       out[coll] = Object.values(byId);
     }
     out.tdee = newer(out.tdee, remote.tdee);
+    // hydratation : objectif LWW · contenants par id · consommations par ID à
+    // l'intérieur de chaque jour (deux appareils peuvent en créer le même jour)
+    {
+      const rw = remote.water || {};
+      const w = Object.assign({goal:null, containers:[], log:{}}, out.water || {});
+      w.goal = newer(w.goal, rw.goal || null);
+      const cById = Object.fromEntries((w.containers||[]).map(c=>[c.id,c]));
+      for(const rc of (rw.containers||[])){
+        if(!cById[rc.id] || ts(rc) > ts(cById[rc.id])) cById[rc.id] = rc;
+      }
+      w.containers = Object.values(cById);
+      for(const [dayK, rday] of Object.entries(rw.log||{})){
+        const lday = w.log[dayK];
+        if(!lday){ w.log[dayK] = rday; continue; }
+        const eById = Object.fromEntries((lday.entries||[]).map(e=>[e.id,e]));
+        for(const re of (rday.entries||[])){
+          if(!eById[re.id] || ts(re) > ts(eById[re.id])) eById[re.id] = re;
+        }
+        w.log[dayK] = {
+          entries: Object.values(eById).sort((x,y)=>(x.at||'').localeCompare(y.at||'')),
+          updatedAt: (rday.updatedAt||'') > (lday.updatedAt||'') ? rday.updatedAt : lday.updatedAt
+        };
+      }
+      out.water = w;
+    }
     if(remote.mealCatsUpdatedAt && (!out.mealCatsUpdatedAt || remote.mealCatsUpdatedAt > out.mealCatsUpdatedAt)){
       out.mealCats = remote.mealCats; out.mealCatsUpdatedAt = remote.mealCatsUpdatedAt;
     }
@@ -499,10 +561,10 @@ const Sync = {
 
 /* ===== Apparence (par profil : thème, accent, bulles, compagnon) ===== */
 const THEMES = [
-  {id:'nuit', nom:'🌙 Nuit',          prev:'linear-gradient(135deg,#0f1024,#5385ed)'},
-  {id:'aero', nom:'🫧 Frutiger Aero', prev:'linear-gradient(135deg,#66b8e8,#d7f2ff)'},
-  {id:'rose', nom:'🍓 Rose bonbon',   prev:'linear-gradient(135deg,#ffd3e8,#f4569d)'},
-  {id:'neon', nom:'🌌 Néon pixel',    prev:'linear-gradient(135deg,#12041f,#00ffa3)'},
+  {id:'nuit', nom:'Nuit',          emo:'🌙', mini:['#0e0f22','#191b3d','#5d8bf4','#ff8a3d']},
+  {id:'aero', nom:'Frutiger Aero', emo:'🫧', mini:['#5db3e6','#e8f7ff','#0a86c9','#ff8a00']},
+  {id:'rose', nom:'Rose bonbon',   emo:'🍓', mini:['#ffd3e8','#fff6fa','#f4569d','#22a566']},
+  {id:'neon', nom:'Néon pixel',    emo:'🌌', mini:['#12041f','#1c0b31','#00ffa3','#ff4dd8']},
 ];
 const PETS = ['🐧','🐸','🐱','🐰','🍓','⭐','🫧','🦆','🐢','🌸'];
 
@@ -515,11 +577,15 @@ function applyAppearance(){
   if(a.accent) root.style.setProperty('--line', a.accent);
   else root.style.removeProperty('--line');
 
+  // la barre système (mobile) suit le thème
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if(meta) meta.setAttribute('content', cssVar('--navbg') || '#0e0f22');
+
   // bulles flottantes
   let b = document.getElementById('bubbles');
   if(a.bubbles){
     if(!b){
-      b = document.createElement('div'); b.id = 'bubbles';
+      b = document.createElement('div'); b.id = 'bubbles'; b.setAttribute('aria-hidden','true');
       let h = '';
       for(let i=0;i<12;i++){
         const s = 8+Math.random()*26, l = Math.random()*100, d = 8+Math.random()*9, dl = Math.random()*9;
@@ -530,12 +596,13 @@ function applyAppearance(){
     }
   } else if(b) b.remove();
 
-  // compagnon
+  // compagnon (bouton accessible : un tap = un cœur)
   let p = document.getElementById('pet');
   if(a.pet){
     if(!p){
-      p = document.createElement('div'); p.id = 'pet';
-      p.innerHTML = '<span></span>';
+      p = document.createElement('button'); p.id = 'pet'; p.type = 'button';
+      p.setAttribute('aria-label','Compagnon — envoyer un cœur');
+      p.innerHTML = '<span aria-hidden="true"></span>';
       p.addEventListener('click', ()=>{
         const h = document.createElement('span');
         h.className = 'heart'; h.textContent = '💗';
@@ -571,21 +638,21 @@ function openProfiles(){
     const list = Store.list();
     const activeId = Store.activeId;
     bg.innerHTML = `
-      <div class="modal">
+      <div class="modal" role="dialog" aria-label="Profils">
         <h3>👤 Profils</h3>
-        <p class="small muted" style="margin:0 0 12px">Chaque profil a ses propres pesées, repas, séances et TDEE.
-        Le profil choisi est propre à <b>cet appareil</b> : Faten peut rester sur le sien pendant que tu restes sur le tien.</p>
+        <p class="set-note">Chaque profil a ses propres pesées, repas, séances, hydratation et TDEE.
+        Le profil choisi est propre à <b>cet appareil</b> : chacun garde le sien, même coffre partagé.</p>
         <div class="list">
           ${list.map(p=>{
             const d = p.data;
             const w = Object.keys(d.weights).length, g = Object.keys(d.gym).length;
             return `<div class="prof-row ${p.id===activeId?'on':''}">
-              <div class="grow" data-pick="${p.id}">
+              <div class="grow" data-pick="${p.id}" role="button" tabindex="0">
                 <div class="nom">${p.id===activeId?'✅ ':''}${esc(p.nom)}</div>
                 <div class="sub">${w} pesée(s) · ${g} séance(s) · ${d.recipes.filter(r=>!r.deleted).length} plat(s)${d.tdee?' · TDEE ✓':''}</div>
               </div>
-              <button class="li-x" data-ren="${p.id}" title="Renommer">✎</button>
-              ${list.length>1?`<button class="li-x" data-del="${p.id}" title="Supprimer">🗑</button>`:''}
+              <button class="li-x" data-ren="${p.id}" title="Renommer" aria-label="Renommer ${esc(p.nom)}">✎</button>
+              ${list.length>1?`<button class="li-x" data-del="${p.id}" title="Supprimer" aria-label="Supprimer ${esc(p.nom)}">🗑</button>`:''}
             </div>`;
           }).join('')}
         </div>
@@ -595,10 +662,11 @@ function openProfiles(){
         </div>
       </div>`;
 
-    bg.querySelectorAll('[data-pick]').forEach(el=>el.addEventListener('click', ()=>{
-      Store.setActive(el.dataset.pick);
-      close();
-    }));
+    bg.querySelectorAll('[data-pick]').forEach(el=>{
+      const pick = ()=>{ Store.setActive(el.dataset.pick); close(); toast('👤 Profil « '+esc(Store.active.nom)+' »'); };
+      el.addEventListener('click', pick);
+      el.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); pick(); } });
+    });
     bg.querySelectorAll('[data-ren]').forEach(b=>b.addEventListener('click', ()=>{
       const p = Store.all.profiles[b.dataset.ren];
       const v = prompt('Nom du profil :', p.nom);
@@ -606,11 +674,11 @@ function openProfiles(){
     }));
     bg.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click', ()=>{
       const p = Store.all.profiles[b.dataset.del];
-      if(!confirm(`Supprimer le profil « ${p.nom} » et toutes ses données (pesées, repas, séances) ?\nCette action est définitive.`)) return;
+      if(!confirm(`Supprimer le profil « ${p.nom} » et toutes ses données (pesées, repas, séances, hydratation) ?\nCette action est définitive.`)) return;
       Store.deleteProfile(p.id); draw();
     }));
     bg.querySelector('#pfNew').addEventListener('click', ()=>{
-      const v = prompt('Nom du nouveau profil (ex : Faten) :');
+      const v = prompt('Nom du nouveau profil :');
       if(v && v.trim()){ Store.addProfile(v); close(); }
     });
     bg.querySelector('#pfClose').addEventListener('click', close);
@@ -618,84 +686,133 @@ function openProfiles(){
   draw();
 }
 
-/* ===== Réglages (modale) ===== */
+/* ===== Réglages (modale, groupes clairs) ===== */
 function openSettings(){
   const c = Sync.cfg || {owner:'CoverSurGitHub', repo:'orange-bleue-affluence', token:''};
+  const ap = appearance();
+  const goalW = Store.data.settings.objectifPoids;
+  const goalMl = (Store.data.water && Store.data.water.goal && Store.data.water.goal.ml) || '';
   const bg = document.createElement('div');
   bg.className = 'modal-bg';
   bg.innerHTML = `
-    <div class="modal">
+    <div class="modal" role="dialog" aria-label="Réglages">
       <h3>⚙️ Réglages <span class="small muted" style="font-weight:400">v${APP_VERSION}</span></h3>
-      <div class="card" style="background:var(--card2)">
-        <h2>🎨 Apparence — profil « ${esc(Store.active.nom)} »</h2>
-        <p class="small muted" style="margin:0 0 10px">Ton style te suit sur tous tes appareils. Chacun le sien 💅</p>
-        <div class="field"><label>Thème</label>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
-            ${THEMES.map(t=>`<button class="btn thm ${ (appearance().theme||'nuit')===t.id?'primary':''}" data-thm="${t.id}" style="display:flex;align-items:center;gap:8px">
-              <span style="width:22px;height:22px;border-radius:6px;background:${t.prev};flex:0 0 auto;border:1px solid rgba(255,255,255,.4)"></span>${t.nom}</button>`).join('')}
-          </div>
+
+      <div class="set-group">
+        <h2>👤 Profil</h2>
+        <div class="row" style="margin:0">
+          <div><b>${esc(Store.active.nom)}</b><div class="small muted">profil actif sur cet appareil</div></div>
+          <button class="btn" id="setProfiles">Gérer les profils</button>
         </div>
-        <div class="fieldrow" style="margin-top:8px">
-          <div class="field"><label>Couleur d'accent</label>
+      </div>
+
+      <div class="set-group">
+        <h2>🎯 Objectifs</h2>
+        <div class="fieldrow">
+          <div class="field"><label for="setGoalW">Poids cible (kg)</label>
+            <input type="number" id="setGoalW" inputmode="decimal" step="0.1" min="20" max="400" value="${goalW ?? ''}" placeholder="—"></div>
+          <div class="field"><label for="setGoalMl">Eau par jour (ml)</label>
+            <input type="number" id="setGoalMl" inputmode="numeric" step="50" min="250" max="8000" value="${goalMl}" placeholder="2000"></div>
+        </div>
+        <button class="btn" id="setGoalSave" style="width:100%">Enregistrer les objectifs</button>
+      </div>
+
+      <div class="set-group">
+        <h2>🎨 Apparence <span class="h2sub">— suit le profil « ${esc(Store.active.nom)} »</span></h2>
+        <div class="thm-grid" role="group" aria-label="Thème">
+          ${THEMES.map(t=>`
+            <button type="button" class="thm-card ${(ap.theme||'nuit')===t.id?'on':''}" data-thm="${t.id}" aria-pressed="${(ap.theme||'nuit')===t.id}">
+              <span class="thm-mini" style="background:${t.mini[0]}" aria-hidden="true">
+                <i style="width:26px;height:16px;background:${t.mini[1]};border-radius:4px"></i>
+                <i style="width:12px;height:12px;background:${t.mini[2]}"></i>
+                <i style="width:8px;height:8px;background:${t.mini[3]}"></i>
+              </span>
+              <span class="thm-name">${t.emo} ${t.nom}</span>
+            </button>`).join('')}
+        </div>
+        <div class="fieldrow" style="margin-top:10px">
+          <div class="field"><label for="apAccent">Couleur d'accent</label>
             <div style="display:flex;gap:6px;align-items:center">
-              <input type="color" id="apAccent" value="${esc(appearance().accent||'#5385ed')}" style="min-height:44px;width:64px;padding:2px;background:var(--field);border:1px solid var(--line2);border-radius:10px">
-              <button class="btn" id="apAccentReset" title="Couleur du thème">↺</button>
+              <input type="color" id="apAccent" value="${esc(ap.accent||'#5d8bf4')}" aria-label="Couleur d'accent"
+                     style="min-height:44px;width:64px;padding:2px;background:var(--field);border:1px solid var(--line2);border-radius:10px">
+              <button class="btn" id="apAccentReset" title="Revenir à la couleur du thème">↺</button>
             </div>
           </div>
-          <div class="field"><label>Compagnon</label>
+          <div class="field"><label for="apPet">Compagnon</label>
             <select id="apPet">
               <option value="">— aucun —</option>
-              ${PETS.map(p=>`<option value="${p}" ${appearance().pet===p?'selected':''}>${p}</option>`).join('')}
+              ${PETS.map(p=>`<option value="${p}" ${ap.pet===p?'selected':''}>${p}</option>`).join('')}
             </select>
           </div>
         </div>
-        <label class="small" style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer">
-          <input type="checkbox" id="apBubbles" ${appearance().bubbles?'checked':''} style="min-height:0;width:20px;height:20px">
+        <label class="small" style="display:flex;align-items:center;gap:8px;margin-top:4px;cursor:pointer">
+          <input type="checkbox" id="apBubbles" ${ap.bubbles?'checked':''} style="min-height:0;width:20px;height:20px">
           🫧 Bulles flottantes
         </label>
       </div>
-      <div class="card" style="background:var(--card2)">
-        <h2>Synchronisation (propriétaire)</h2>
-        <p class="small muted" style="margin:0 0 10px">Colle ton jeton GitHub pour enregistrer tes données
-        dans le dépôt public — elles se synchronisent alors entre ton PC et ton téléphone.
-        Sans jeton, l'app affiche les données publiées en <b>consultation seule</b> (parfait pour un proche : il n'a rien à configurer).
-        ⚠️ Les données sont publiques (repo public).
-        État : <b>${Sync.cfg ? 'écriture activée' : (Sync.autoRO ? 'consultation seule' : 'locale')}</b>${Sync.lastError ? ' — erreur : '+esc(Sync.lastError) : ''}</p>
+
+      <div class="set-group">
+        <h2>☁️ Synchronisation</h2>
+        <p class="set-note">Avec un jeton : tes données s'enregistrent dans le coffre et se retrouvent sur tous tes appareils.
+        Sans jeton : consultation seule ou données locales. ⚠️ Le coffre vit dans un dépôt public.
+        État : <b>${Sync.cfg ? 'écriture activée' : (Sync.autoRO ? 'consultation seule' : 'locale')}</b></p>
         <div class="fieldrow">
-          <div class="field"><label>Propriétaire</label><input id="syncOwner" type="text" value="${esc(c.owner)}" autocapitalize="off"></div>
-          <div class="field"><label>Dépôt</label><input id="syncRepo" type="text" value="${esc(c.repo)}" autocapitalize="off"></div>
+          <div class="field"><label for="syncOwner">Propriétaire</label><input id="syncOwner" type="text" value="${esc(c.owner)}" autocapitalize="off"></div>
+          <div class="field"><label for="syncRepo">Dépôt</label><input id="syncRepo" type="text" value="${esc(c.repo)}" autocapitalize="off"></div>
         </div>
-        <div class="field"><label>Jeton (fine-grained, Contents RW sur ce dépôt)</label><input id="syncToken" type="password" value="${esc(c.token)}" placeholder="github_pat_…"></div>
-        <div class="actions" style="display:flex;gap:8px;flex-wrap:wrap">
+        <div class="field"><label for="syncToken">Jeton (fine-grained, Contents RW sur ce dépôt)</label>
+          <input id="syncToken" type="password" value="${esc(c.token)}" placeholder="github_pat_…" autocomplete="off"></div>
+        <div class="actions" style="margin-top:4px">
           <button class="btn primary" id="syncSave">Activer l'écriture</button>
           <button class="btn" id="syncNow">🔄 Synchroniser</button>
-          <button class="btn danger" id="syncOff">Désactiver</button>
         </div>
-        <button class="btn" id="syncForce" style="width:100%;margin-top:8px">⬇️ Tout recharger depuis le coffre</button>
-        <div class="small muted" style="margin-top:4px">À utiliser si cet appareil reste bloqué sur une vieille version :
-        ses données locales sont remplacées par celles du coffre.</div>
-        <div class="small muted" id="syncInfo" style="margin-top:8px"></div>
+        <div class="small muted" id="syncInfo" style="margin-top:8px" aria-live="polite"></div>
       </div>
-      ${Sync.autoRO ? `<div class="card" style="background:var(--card2)">
-        <h2>👁 Tu es en consultation seule</h2>
-        <p class="small muted" style="margin:0 0 10px">Cet appareil affiche les données publiées par le propriétaire.
-        Si tu veux tenir TON propre suivi ici (il restera local à cet appareil) :</p>
-        <button class="btn" id="optOut">✍️ Mon propre suivi sur cet appareil</button>
-      </div>` : ''}
-      <div class="card" style="background:var(--card2)">
-        <h2>Sauvegarde manuelle</h2>
+
+      <div class="set-group">
+        <h2>💾 Sauvegarde</h2>
         <div style="display:flex;gap:8px">
-          <button class="btn" id="expBtn">⬇️ Exporter (JSON)</button>
-          <button class="btn" id="impBtn">⬆️ Importer</button>
-          <input type="file" id="impFile" accept=".json" style="display:none">
+          <button class="btn" id="expBtn" style="flex:1">⬇️ Exporter (JSON)</button>
+          <button class="btn" id="impBtn" style="flex:1">⬆️ Importer</button>
+          <input type="file" id="impFile" accept=".json" style="display:none" aria-hidden="true">
         </div>
       </div>
+
+      ${Sync.autoRO ? `<div class="set-group">
+        <h2>👁 Consultation seule</h2>
+        <p class="set-note">Cet appareil affiche les données publiées par le propriétaire, sans pouvoir les modifier.</p>
+        <button class="btn" id="optOut" style="width:100%">✍️ Tenir mon propre suivi sur cet appareil</button>
+      </div>` : ''}
+
+      <div class="set-group set-danger">
+        <h2>⚠️ Zone sensible</h2>
+        <button class="btn" id="syncForce" style="width:100%">⬇️ Tout recharger depuis le coffre</button>
+        <p class="set-note" style="margin:6px 0 10px">Si cet appareil reste bloqué sur une vieille version : ses données
+        locales sont remplacées par celles du coffre.</p>
+        ${Sync.cfg ? '<button class="btn danger" id="syncOff" style="width:100%">Désactiver la synchronisation sur cet appareil</button>' : ''}
+      </div>
+
       <div class="actions"><button class="btn" id="setClose">Fermer</button></div>
     </div>`;
   document.body.appendChild(bg);
   const close = ()=>bg.remove();
   bg.addEventListener('click', e=>{ if(e.target===bg) close(); });
   bg.querySelector('#setClose').addEventListener('click', close);
+  bg.querySelector('#setProfiles').addEventListener('click', ()=>{ close(); openProfiles(); });
+
+  /* --- objectifs --- */
+  bg.querySelector('#setGoalSave').addEventListener('click', ()=>{
+    const vw = parseFloat(String(bg.querySelector('#setGoalW').value).replace(',','.'));
+    if(Number.isFinite(vw) && vw>0) Store.data.settings.objectifPoids = Math.round(vw*10)/10;
+    else delete Store.data.settings.objectifPoids;
+    const vm = parseInt(bg.querySelector('#setGoalMl').value, 10);
+    if(Number.isFinite(vm) && vm>=250) Store.data.water.goal = {ml:vm, updatedAt:nowIso()};
+    Store.save();
+    toast('🎯 Objectifs enregistrés');
+    close();
+  });
+
+  /* --- synchronisation --- */
   bg.querySelector('#syncSave').addEventListener('click', async ()=>{
     const owner = bg.querySelector('#syncOwner').value.trim();
     const repo  = bg.querySelector('#syncRepo').value.trim();
@@ -703,12 +820,16 @@ function openSettings(){
     if(!owner || !repo || !token){ alert('Remplis les 3 champs.'); return; }
     Sync.cfg = {owner, repo, token};
     Sync.autoRO = false;
-    localStorage.setItem('ob.optOutRO','1');        // cet appareil devient un appareil "propriétaire"
-    await Sync.pull();
+    localStorage.setItem('ob.optOutRO','1');
+    await Sync.pull({force:true});
     if(Sync.status === 'error'){ alert('Échec de connexion : ' + Sync.lastError + '\nVérifie le jeton et le nom du dépôt.'); Sync.cfg = null; }
-    else { Sync.schedulePush(); alert('Écriture activée ✔ Tes données seront synchronisées.'); close(); }
+    else { Sync.schedulePush(); toast('☁️ Écriture activée — données synchronisées'); close(); }
   });
-  bg.querySelector('#syncOff').addEventListener('click', ()=>{ Sync.cfg = null; Sync.setStatus('off'); close(); });
+  const offBtn = bg.querySelector('#syncOff');
+  if(offBtn) offBtn.addEventListener('click', ()=>{
+    if(!confirm('Désactiver la synchronisation sur CET appareil ?\nTes données restent locales et dans le coffre, mais ne circulent plus.')) return;
+    Sync.cfg = null; Sync.setStatus('off'); close();
+  });
   const info = bg.querySelector('#syncInfo');
   const paintInfo = async ()=>{
     if(!info) return;
@@ -717,14 +838,13 @@ function openSettings(){
         + 'Tes saisies restent ici. Colle le jeton ci-dessus pour le relier au coffre.';
       return;
     }
-    // comparaison locale ↔ coffre, pour voir tout de suite qui est en retard
     let distant = '…';
     try{
       const r = await Sync.api(Sync.FILE);
       if(r.ok){
         const j = await r.json();
-        const c = JSON.parse(decodeURIComponent(escape(atob(j.content.replace(/\n/g,'')))));
-        distant = c.updatedAt ? new Date(c.updatedAt).toLocaleString('fr-FR') : 'inconnu';
+        const cc = JSON.parse(decodeURIComponent(escape(atob(j.content.replace(/\n/g,'')))));
+        distant = cc.updatedAt ? new Date(cc.updatedAt).toLocaleString('fr-FR') : 'inconnu';
       } else distant = 'HTTP ' + r.status;
     }catch(e){ distant = 'injoignable'; }
     info.innerHTML =
@@ -735,7 +855,7 @@ function openSettings(){
   };
   paintInfo();
   const forceBtn = bg.querySelector('#syncForce');
-  if(forceBtn) forceBtn.addEventListener('click', async ()=>{
+  forceBtn.addEventListener('click', async ()=>{
     if(!Sync.cfg){ alert('Active d\'abord la synchronisation (jeton).'); return; }
     if(!confirm('Remplacer TOUTES les données de cet appareil par celles du coffre ?\n\n'
       + 'À faire seulement si cet appareil affiche une version périmée.\n'
@@ -745,37 +865,44 @@ function openSettings(){
       const r = await Sync.api(Sync.FILE);
       if(!r.ok) throw new Error('HTTP ' + r.status);
       const j = await r.json();
-      const c = JSON.parse(decodeURIComponent(escape(atob(j.content.replace(/\n/g,'')))));
-      Store.all = (c.schemaVersion === 2) ? c : wrapV1(c);
+      const cc = JSON.parse(decodeURIComponent(escape(atob(j.content.replace(/\n/g,'')))));
+      Store.all = (cc.schemaVersion === 2) ? cc : wrapV1(cc);
       Sync._sha = j.sha; Sync.dirty = false;
       localStorage.setItem(STORE_KEY, JSON.stringify(Store.all));
       document.dispatchEvent(new CustomEvent('profilechange'));
       document.dispatchEvent(new CustomEvent('storechange'));
       Sync.setStatus('ok');
-      alert('Rechargé depuis le coffre ✔');
+      toast('⬇️ Rechargé depuis le coffre');
       close();
     }catch(e){ alert('Échec : ' + e.message); }
     forceBtn.disabled = false; forceBtn.textContent = '⬇️ Tout recharger depuis le coffre';
   });
   const syncBtn = bg.querySelector('#syncNow');
-  if(syncBtn) syncBtn.addEventListener('click', async ()=>{
+  syncBtn.addEventListener('click', async ()=>{
     syncBtn.disabled = true; syncBtn.textContent = '…';
     await Sync.syncNow(true);
     syncBtn.disabled = false; syncBtn.textContent = '🔄 Synchroniser';
     paintInfo();
-    if(!Sync.dirty && !Sync.lastError) alert('Synchronisé ✔');
+    if(!Sync.dirty && !Sync.lastError) toast('☁️ Synchronisé');
   });
-  // --- apparence ---
+
+  /* --- apparence --- */
   bg.querySelectorAll('[data-thm]').forEach(b=>b.addEventListener('click', ()=>{
     setAppearance({theme:b.dataset.thm});
-    bg.querySelectorAll('[data-thm]').forEach(x=>x.classList.toggle('primary', x===b));
+    bg.querySelectorAll('[data-thm]').forEach(x=>{
+      const on = x===b;
+      x.classList.toggle('on', on);
+      x.setAttribute('aria-pressed', on);
+    });
   }));
   bg.querySelector('#apAccent').addEventListener('change', e=>setAppearance({accent:e.target.value}));
   bg.querySelector('#apAccentReset').addEventListener('click', ()=>{
-    setAppearance({accent:null}); bg.querySelector('#apAccent').value = '#5385ed';
+    setAppearance({accent:null}); bg.querySelector('#apAccent').value = '#5d8bf4';
   });
   bg.querySelector('#apPet').addEventListener('change', e=>setAppearance({pet:e.target.value||null}));
   bg.querySelector('#apBubbles').addEventListener('change', e=>setAppearance({bubbles:e.target.checked}));
+
+  /* --- consultation seule --- */
   const optOut = bg.querySelector('#optOut');
   if(optOut) optOut.addEventListener('click', ()=>{
     if(!confirm('Cet appareil quittera la consultation et tiendra un suivi local vierge. Continuer ?')) return;
@@ -783,12 +910,14 @@ function openSettings(){
     localStorage.removeItem(STORE_KEY);
     location.reload();
   });
+
+  /* --- sauvegarde --- */
   bg.querySelector('#expBtn').addEventListener('click', ()=>{
     const blob = new Blob([JSON.stringify(Store.all, null, 1)], {type:'application/json'});
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'perso-' + todayKey() + '.json';
-    a.click();
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'perso-' + todayKey() + '.json';
+    link.click();
   });
   bg.querySelector('#impBtn').addEventListener('click', ()=>bg.querySelector('#impFile').click());
   bg.querySelector('#impFile').addEventListener('change', e=>{
@@ -801,7 +930,7 @@ function openSettings(){
         Store.all = Sync.merge(Store.all, imported);
         Store.save();
         document.dispatchEvent(new CustomEvent('profilechange'));
-        alert('Import fusionné ✔');
+        toast('⬆️ Import fusionné');
         close();
       }catch(err){ alert('Fichier invalide : ' + err.message); }
     };
@@ -816,14 +945,17 @@ document.addEventListener('DOMContentLoaded', ()=>{
     document.getElementById('nav-'+p).addEventListener('click', ()=>showPage(p));
   }
   document.getElementById('btnSettings').addEventListener('click', openSettings);
-  document.getElementById('syncBadge').addEventListener('click', openSettings);   // badge cliquable
+  const badge = document.getElementById('syncBadge');
+  badge.addEventListener('click', openSettings);
+  badge.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openSettings(); } });
   document.getElementById('btnProfile').addEventListener('click', openProfiles);
   document.addEventListener('profilechange', refreshProfileButton);
   document.addEventListener('profilechange', applyAppearance);
   document.addEventListener('storechange', applyAppearance);
   refreshProfileButton();
   applyAppearance();
-  showPage(localStorage.getItem('ob.lastPage') || 'salle');
+  const wanted = localStorage.getItem('ob.lastPage');
+  showPage(PAGES.includes(wanted) ? wanted : 'salle');
   if(Sync.cfg){
     Sync.installLifecycle();
     Sync.syncNow(true);          // récupère, puis renvoie ce qui restait en attente

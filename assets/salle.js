@@ -32,6 +32,10 @@ function isoWeek(dk){
   return dt.getUTCFullYear()+'-S'+String(1+Math.round((dt-firstThu)/(7*864e5))).padStart(2,'0');
 }
 function fmtHM(m){ const h=Math.floor(m/60), mm=m%60; return h+'h'+(mm?String(mm).padStart(2,'0'):''); }
+/* hex (#rrggbb) + alpha 0..1 → #rrggbbaa (les couleurs de thème sont toutes en hex) */
+function withAlpha(hex, al){
+  return /^#[0-9a-fA-F]{6}$/.test(hex) ? hex + Math.round(al*255).toString(16).padStart(2,'0') : hex;
+}
 function niceStep(max){ return max<=10?2:max<=25?5:max<=60?10:20; }
 function hideTip(){ const t=document.getElementById('sTip'); if(t) t.style.display='none'; }
 
@@ -102,7 +106,30 @@ function setGran(g){
 function render(){
   const last = ROWS[ROWS.length-1];
   document.getElementById('sLiveNum').textContent = last ? last.count : '–';
-  document.getElementById('sLiveWhen').textContent = last ? ('En direct · ' + last.hhmm) : '—';
+  const dot = document.getElementById('sLiveDot');
+  if(last){
+    const ageMin = (Date.now() - last.t.getTime()) / 60000;
+    const fresh = ageMin <= 25;
+    document.getElementById('sLiveWhen').textContent =
+      (fresh ? 'En direct · ' : 'Dernier relevé · ') + last.hhmm +
+      (last.dayKey !== todayKey() ? ' (' + labelForKey(last.dayKey, false) + ')' : '');
+    dot.classList.toggle('stale', !fresh);
+    dot.title = fresh ? 'Relevé récent' : 'Relevé de plus de 25 min';
+    // tendance : comparaison avec le relevé d'il y a ~1 h (même journée)
+    const trendEl = document.getElementById('sTrend');
+    const ref = ROWS.filter(r => r.dayKey === last.dayKey &&
+                                 last.t.getTime() - r.t.getTime() >= 50*60000 &&
+                                 last.t.getTime() - r.t.getTime() <= 80*60000).pop();
+    if(ref && fresh){
+      const dlt = last.count - ref.count;
+      trendEl.hidden = false;
+      trendEl.className = 'trend ' + (dlt > 1 ? 'up' : dlt < -1 ? 'down' : 'flat');
+      trendEl.textContent = (dlt > 1 ? '↗ +' + dlt : dlt < -1 ? '↘ ' + dlt : '→ stable') +
+                            (Math.abs(dlt) > 1 ? ' vs il y a 1 h' : ' depuis 1 h');
+    } else trendEl.hidden = true;
+  } else {
+    document.getElementById('sLiveWhen').textContent = '—';
+  }
 
   if(TAB === 'compare'){ renderCompare(); return; }
   document.getElementById('sLegend').style.display = 'none';
@@ -112,7 +139,7 @@ function render(){
   const empty = document.getElementById('sEmpty');
   const canvas = document.getElementById('sChart');
   if(!pts.length){
-    empty.textContent = 'Pas encore de données pour ce jour.';
+    empty.innerHTML = '<span class="emo">📉</span><b>Pas de mesures ce jour-là.</b><br>Choisis un autre jour avec le calendrier 📅.';
     empty.style.display='block'; canvas.style.display='none';
     ['sAvg','sMax','sN','sPeak'].forEach(id=>document.getElementById(id).textContent='–');
     document.getElementById('sPeakWhen').textContent='';
@@ -157,7 +184,9 @@ function drawDay(canvas, pts, maxCount){
   const sx = m => x0 + (x1-x0)*(m-minX)/(maxX-minX);
   const sy = c => y0 + (y1-y0)*(c/yMax);
 
-  ctx.strokeStyle = '#2b2e5e'; ctx.fillStyle = '#9aa0c7'; ctx.font = '11px system-ui'; ctx.lineWidth=1;
+  const cGrid = cssVar('--chart-grid'), cLabel = cssVar('--chart-label');
+  const cLine = cssVar('--line'), cAccent = cssVar('--accent');
+  ctx.strokeStyle = cGrid; ctx.fillStyle = cLabel; ctx.font = '11px system-ui'; ctx.lineWidth=1;
   for(let v=0; v<=yMax; v+=niceStep(yMax)){
     const y=sy(v); ctx.beginPath(); ctx.moveTo(x0,y); ctx.lineTo(x1,y); ctx.stroke();
     ctx.fillText(String(v), 6, y+4);
@@ -171,19 +200,19 @@ function drawDay(canvas, pts, maxCount){
   pts.forEach((p,i)=>{ const X=sx(p.minOfDay),Y=sy(p.count); i?ctx.lineTo(X,Y):ctx.moveTo(X,Y); });
   ctx.lineTo(sx(lastP.minOfDay), y0); ctx.lineTo(sx(pts[0].minOfDay), y0); ctx.closePath();
   const grad = ctx.createLinearGradient(0,y1,0,y0);
-  grad.addColorStop(0,'rgba(83,133,237,.45)'); grad.addColorStop(1,'rgba(83,133,237,0)');
+  grad.addColorStop(0, withAlpha(cLine,.4)); grad.addColorStop(1, withAlpha(cLine,0));
   ctx.fillStyle=grad; ctx.fill();
 
   ctx.beginPath();
   pts.forEach((p,i)=>{ const X=sx(p.minOfDay),Y=sy(p.count); i?ctx.lineTo(X,Y):ctx.moveTo(X,Y); });
-  ctx.strokeStyle='#5385ed'; ctx.lineWidth=2; ctx.stroke();
+  ctx.strokeStyle=cLine; ctx.lineWidth=2; ctx.stroke();
 
   HIT = [];
   const rPt = GRAN==='min' ? 3.2 : (pts.length>120 ? 1.6 : 2.6);
   pts.forEach((p,i)=>{
     const X=sx(p.minOfDay), Y=sy(p.count);
     const isLast = i===pts.length-1;
-    ctx.fillStyle = isLast ? '#ff7a1a' : '#a9c1f5';
+    ctx.fillStyle = isLast ? cAccent : withAlpha(cLine,.65);
     ctx.beginPath(); ctx.arc(X, Y, isLast?4:rPt, 0, 7); ctx.fill();
     HIT.push({x:X, y:Y, count:p.count, hhmm:p.hhmm});
   });
@@ -237,7 +266,7 @@ function renderCompare(){
 
   series = series.filter(s=>s.pts.length);
   if(!series.length){
-    empty.textContent = 'Pas encore assez de données pour cette comparaison.';
+    empty.innerHTML = '<span class="emo">🔀</span><b>Pas encore assez de données pour comparer.</b><br>Les courbes s’empilent au fil des semaines.';
     empty.style.display='block'; canvas.style.display='none'; legend.style.display='none';
     ['sAvg','sMax','sPeak'].forEach(id=>document.getElementById(id).textContent='–');
     document.getElementById('sPeakWhen').textContent='';
@@ -274,11 +303,12 @@ function drawMulti(canvas, series, xMin, xMax, xTicks, seps){
   const sx = x => x0 + (x1-x0)*(x-xMin)/(xMax-xMin);
   const sy = v => y0 + (y1-y0)*(v/yMax);
 
-  ctx.strokeStyle='#2b2e5e'; ctx.fillStyle='#9aa0c7'; ctx.font='11px system-ui'; ctx.lineWidth=1;
+  const cGrid = cssVar('--chart-grid'), cLabel = cssVar('--chart-label');
+  ctx.strokeStyle=cGrid; ctx.fillStyle=cLabel; ctx.font='11px system-ui'; ctx.lineWidth=1;
   for(let v=0; v<=yMax; v+=niceStep(yMax)){ const y=sy(v); ctx.beginPath(); ctx.moveTo(x0,y); ctx.lineTo(x1,y); ctx.stroke(); ctx.fillText(String(v),4,y+4); }
-  ctx.strokeStyle='#3a3e73';
+  ctx.strokeStyle=cssVar('--chart-sep');
   for(const s of seps){ const x=sx(s); ctx.beginPath(); ctx.moveTo(x,y1); ctx.lineTo(x,y0); ctx.stroke(); }
-  ctx.textAlign='center'; ctx.fillStyle='#9aa0c7';
+  ctx.textAlign='center'; ctx.fillStyle=cLabel;
   for(const t of xTicks){ ctx.fillText(t.label, sx(t.x), H-8); }
   ctx.textAlign='left';
 

@@ -35,6 +35,7 @@ function save(){
   inp.value = '';
   inp.blur();
   render();
+  toast('⚖️ ' + kg.toFixed(1) + ' kg — ' + labelForKey(day, false));
 }
 
 function removeEntry(day){
@@ -42,6 +43,7 @@ function removeEntry(day){
   delete Store.data.weights[day];
   Store.save();
   render();
+  toast('🗑 Pesée du ' + labelForKey(day, false) + ' supprimée');
 }
 
 function setGoal(){
@@ -64,7 +66,9 @@ function render(){
     tiles.innerHTML = '';
     document.getElementById('pEmpty').style.display = 'block';
     document.getElementById('pChart').style.display = 'none';
-    document.getElementById('pList').innerHTML = '';
+    const lg0 = document.getElementById('pLegend'); if(lg0) lg0.innerHTML = '';
+    document.getElementById('pList').innerHTML =
+      '<div class="empty"><span class="emo">📋</span>Les 14 dernières pesées appara' + 'îtront ici.</div>';
     return;
   }
   document.getElementById('pEmpty').style.display = 'none';
@@ -100,6 +104,11 @@ function render(){
     list = all.filter(e=>keyToDate(e.day).getTime() >= from);
   }
   drawChart(list, movingAvg(list), goal);
+  const lg = document.getElementById('pLegend');
+  if(lg) lg.innerHTML =
+    '<span class="li"><span class="sw" style="background:' + cssVar('--line') + '"></span>Pesées</span>' +
+    '<span class="li"><span class="sw" style="background:' + cssVar('--good') + '"></span>Moyenne 7 j</span>' +
+    (goal!==undefined ? '<span class="li"><span class="sw" style="background:' + cssVar('--accent') + '"></span>Objectif</span>' : '');
   renderList(all);
   cal.refresh();
 }
@@ -114,6 +123,8 @@ function drawChart(list, avg, goal){
   HIT = [];
   if(!list.length) return;
 
+  const cGrid = cssVar('--chart-grid'), cLabel = cssVar('--chart-label');
+  const cLine = cssVar('--line'), cGood = cssVar('--good'), cAccent = cssVar('--accent');
   const padL=40, padR=14, padT=16, padB=24;
   const x0=padL, x1=W-padR, y0=H-padB, y1=padT;
   const t0 = keyToDate(list[0].day).getTime(), t1 = keyToDate(list[list.length-1].day).getTime();
@@ -126,7 +137,7 @@ function drawChart(list, avg, goal){
   const sy = v => y0 + (y1-y0)*(v-vMin)/(vMax-vMin);
 
   // grille Y
-  ctx.strokeStyle='#2b2e5e'; ctx.fillStyle='#9aa0c7'; ctx.font='11px system-ui'; ctx.lineWidth=1;
+  ctx.strokeStyle=cGrid; ctx.fillStyle=cLabel; ctx.font='11px system-ui'; ctx.lineWidth=1;
   const range=vMax-vMin, yStep = range<=3?0.5:range<=8?1:range<=20?2:5;
   for(let v=Math.ceil(vMin/yStep)*yStep; v<=vMax; v+=yStep){
     const y=sy(v); ctx.beginPath(); ctx.moveTo(x0,y); ctx.lineTo(x1,y); ctx.stroke();
@@ -143,25 +154,25 @@ function drawChart(list, avg, goal){
 
   // ligne objectif
   if(goal!==undefined){
-    ctx.strokeStyle='rgba(255,122,26,.5)'; ctx.setLineDash([5,5]);
+    ctx.strokeStyle=cAccent; ctx.globalAlpha=.55; ctx.setLineDash([5,5]);
     ctx.beginPath(); ctx.moveTo(x0,sy(goal)); ctx.lineTo(x1,sy(goal)); ctx.stroke();
-    ctx.setLineDash([]);
+    ctx.setLineDash([]); ctx.globalAlpha=1;
   }
 
   // moyenne mobile 7 j (lissée, en arrière-plan)
   if(avg.length>1){
     ctx.beginPath();
     avg.forEach((e,i)=>{ const X=sx(keyToDate(e.day).getTime()),Y=sy(e.kg); i?ctx.lineTo(X,Y):ctx.moveTo(X,Y); });
-    ctx.strokeStyle='rgba(55,201,120,.8)'; ctx.lineWidth=2.5; ctx.stroke();
+    ctx.strokeStyle=cGood; ctx.globalAlpha=.85; ctx.lineWidth=2.5; ctx.stroke(); ctx.globalAlpha=1;
   }
 
   // pesées brutes
   ctx.beginPath();
   list.forEach((e,i)=>{ const X=sx(keyToDate(e.day).getTime()),Y=sy(e.kg); i?ctx.lineTo(X,Y):ctx.moveTo(X,Y); });
-  ctx.strokeStyle='rgba(83,133,237,.65)'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.strokeStyle=cLine; ctx.globalAlpha=.6; ctx.lineWidth=1.5; ctx.stroke(); ctx.globalAlpha=1;
   list.forEach((e,i)=>{
     const X=sx(keyToDate(e.day).getTime()), Y=sy(e.kg);
-    ctx.fillStyle = i===list.length-1 ? '#ff7a1a' : '#5385ed';
+    ctx.fillStyle = i===list.length-1 ? cAccent : cLine;
     ctx.beginPath(); ctx.arc(X,Y,i===list.length-1?4.5:3,0,7); ctx.fill();
     HIT.push({x:X,y:Y,kg:e.kg,day:e.day});
   });
@@ -225,6 +236,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
   document.addEventListener('pageshow', e=>{ if(e.detail.page==='poids') render(); });
   document.addEventListener('storechange', ()=>{ if(document.getElementById('page-poids').classList.contains('active')) render(); });
+  document.addEventListener('profilechange', ()=>{ if(document.getElementById('page-poids').classList.contains('active')) render(); });
   render();
 });
 
