@@ -1,7 +1,7 @@
 /* ===== Noyau : navigation, calendrier commun, store, sync ===== */
 'use strict';
 
-const APP_VERSION = 'mt4hhnli';   // bumpé à chaque déploiement (voir bump.js)
+const APP_VERSION = 'mt4hkeut';   // bumpé à chaque déploiement (voir bump.js)
 
 /* Les DONNÉES (mesures d'affluence + coffre perso) vivent sur la branche `data`,
    séparée du code. Raison : chaque commit sur `main` relance une build GitHub
@@ -187,6 +187,19 @@ function wrapV1(v1, nom){
   return {schemaVersion:2, updatedAt: v1.updatedAt || nowIso(), shared: blankShared(),
           profiles:{ p1: {id:'p1', nom: nom||'Moi', createdAt: v1.updatedAt || nowIso(), updatedAt: v1.updatedAt || nowIso(), data:d} }};
 }
+/* Toute adoption d'un conteneur (chargement local, consultation, rechargement
+   depuis le coffre) DOIT passer ici : complète les champs apparus depuis
+   (water, mealCats…) sans jamais recréer ce qui a été supprimé (tombstones). */
+function normalizeAll(all){
+  if(!all.profiles || !Object.keys(all.profiles).length) return emptyContainer();
+  for(const p of Object.values(all.profiles)){
+    p.data = Object.assign(blankProfileData(), p.data || {});
+    if(!p.data.water || typeof p.data.water !== 'object' || Array.isArray(p.data.water)) p.data.water = blankWater();
+    else p.data.water = Object.assign({goal:null, containers:[], log:{}}, p.data.water);
+  }
+  all.shared = Object.assign(blankShared(), all.shared || {});
+  return all;
+}
 function emptyContainer(){
   const id = 'p1';
   return {schemaVersion:2, updatedAt: nowIso(), shared: blankShared(),
@@ -247,16 +260,7 @@ const Store = {
     if(raw && raw.schemaVersion === 2)      this.all = raw;
     else if(wasV1)                          this.all = wrapV1(raw);       // migration douce
     else                                     this.all = emptyContainer();
-    // normalisations défensives
-    if(!this.all.profiles || !Object.keys(this.all.profiles).length) this.all = emptyContainer();
-    for(const p of Object.values(this.all.profiles)){
-      p.data = Object.assign(blankProfileData(), p.data || {});
-      // migration douce : profil d'avant l'hydratation → défauts complets ;
-      // profil déjà migré → on complète sans jamais recréer un contenant supprimé
-      if(!p.data.water || typeof p.data.water !== 'object' || Array.isArray(p.data.water)) p.data.water = blankWater();
-      else p.data.water = Object.assign({goal:null, containers:[], log:{}}, p.data.water);
-    }
-    this.all.shared = Object.assign(blankShared(), this.all.shared || {});
+    this.all = normalizeAll(this.all);
     // fige la migration tout de suite (évite de la refaire à chaque ouverture)
     if(wasV1) localStorage.setItem(STORE_KEY, JSON.stringify(this.all));
     return this.data;
@@ -266,7 +270,7 @@ const Store = {
     if(Sync.autoRO){
       alert('👁 Mode consultation : tu regardes les données publiées, les modifications ne sont pas enregistrées.\n(Pour tenir ton propre suivi sur cet appareil : ⚙️ Réglages → « Mon propre suivi ».)');
       fetch(DATA_URL(Sync.FILE), {cache:'no-store'}).then(r=>r.ok?r.json():null).then(d=>{
-        if(d){ this.all = (d.schemaVersion===2) ? d : wrapV1(d); document.dispatchEvent(new CustomEvent('storechange')); }
+        if(d){ this.all = normalizeAll((d.schemaVersion===2) ? d : wrapV1(d)); document.dispatchEvent(new CustomEvent('storechange')); }
       }).catch(()=>{});
       return;
     }
@@ -441,7 +445,7 @@ const Sync = {
         const j = await res.json();
         this._sha = j.sha;
         const remote = JSON.parse(decodeURIComponent(escape(atob(j.content.replace(/\n/g,'')))));
-        Store.all = this.merge(Store.all, remote);
+        Store.all = normalizeAll(this.merge(Store.all, remote));
         localStorage.setItem(STORE_KEY, JSON.stringify(Store.all));
         this._lastPull = Date.now(); this.lastSyncAt = Date.now();
         document.dispatchEvent(new CustomEvent('profilechange'));
@@ -470,7 +474,7 @@ const Sync = {
           && !Object.values(d.journal).some(j=>(j.eaten||[]).length);
     });
     if(!empty) return;
-    const adopt = c => { Store.all = (c.schemaVersion===2) ? c : wrapV1(c); };
+    const adopt = c => { Store.all = normalizeAll((c.schemaVersion===2) ? c : wrapV1(c)); };
     try{
       const res = await fetch(DATA_URL(this.FILE), {cache:'no-store'});
       if(!res.ok) return;
@@ -866,7 +870,7 @@ function openSettings(){
       if(!r.ok) throw new Error('HTTP ' + r.status);
       const j = await r.json();
       const cc = JSON.parse(decodeURIComponent(escape(atob(j.content.replace(/\n/g,'')))));
-      Store.all = (cc.schemaVersion === 2) ? cc : wrapV1(cc);
+      Store.all = normalizeAll((cc.schemaVersion === 2) ? cc : wrapV1(cc));
       Sync._sha = j.sha; Sync.dirty = false;
       localStorage.setItem(STORE_KEY, JSON.stringify(Store.all));
       document.dispatchEvent(new CustomEvent('profilechange'));
@@ -927,7 +931,7 @@ function openSettings(){
       try{
         const imported = JSON.parse(r.result);
         if(imported.schemaVersion !== 1 && imported.schemaVersion !== 2) throw new Error('format inconnu');
-        Store.all = Sync.merge(Store.all, imported);
+        Store.all = normalizeAll(Sync.merge(Store.all, imported));
         Store.save();
         document.dispatchEvent(new CustomEvent('profilechange'));
         toast('⬆️ Import fusionné');
