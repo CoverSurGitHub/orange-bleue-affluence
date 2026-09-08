@@ -139,7 +139,10 @@ Plus **📤 Partager** (`navigator.share`, surtout sur téléphone) et
 anti-hallucination · profil et cibles **telles que l'app les calcule** ·
 fiabilité et angles morts · tableau kcal / protéines jour par jour ·
 composition de chaque journée · pesées et tendance · séances · hydratation ·
-fiches recettes avec ingrédients. L'affluence de la salle en est exclue :
+fiches recettes avec **le détail de chaque ingrédient** (grammes, kcal et
+protéines pour 100 g, apport réel dans la recette) — sans ces valeurs le modèle
+refuse de chiffrer un ajustement, comme la consigne le lui demande, et se met à
+poser des questions au lieu de conseiller. L'affluence de la salle en est exclue :
 aucune valeur nutritionnelle, et plus lourde à elle seule que tout le reste.
 
 **Ce que le rapport ne fait jamais** :
@@ -152,6 +155,11 @@ aucune valeur nutritionnelle, et plus lourde à elle seule que tout le reste.
   journée sont figées à la saisie ; le rapport signale plutôt les recettes
   modifiées depuis) ;
 - imprimer une tendance de poids sans ≥ 8 pesées étalées sur ≥ 14 jours ;
+- juger le niveau d'activité sur la moyenne brute de séances : deux semaines de
+  vacances font tomber un rythme réel de 3/semaine à 2,1, et le modèle en déduit
+  que le TDEE est surestimé puis baisse la cible. Le rapport donne le détail
+  semaine par semaine, la médiane, la moyenne hors semaines vides, et interdit
+  explicitement cette conclusion ;
 - sortir autre chose que le **profil actif** : lecture en liste blanche dans
   `Store.data`, jamais `Store.all`, jamais `shared`, jamais un autre profil,
   et sans le prénom du profil.

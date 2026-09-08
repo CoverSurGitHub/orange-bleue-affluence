@@ -177,6 +177,18 @@ function collect(w){
           nbJours: diffJ(w.from, w.to) + 1};
 }
 
+/* quantité lisible d'un ingrédient : les grammes d'abord (c'est la base du calcul),
+   l'unité de saisie ensuite quand elle existe (3 œufs, 250 ml) */
+function itemQty(it){
+  const q = r0(Number(it.qty) || 0);
+  if(it.unitLabel){
+    const lbl = it.units > 1 ? (it.unitMany || it.unitLabel + 's') : (it.unitOne || it.unitLabel);
+    return q + ' g (' + it.units + ' ' + lbl + ')';
+  }
+  if(it.ml) return q + ' g (' + r0(it.ml) + ' ml)';
+  return q + ' g';
+}
+
 /* totaux d'une recette : identique à recipeTotals() de repas.js */
 function recTotals(rec){
   let kcal = 0, prot = 0, poids = 0;
@@ -234,6 +246,34 @@ function aberrantes(pts){
     if(dkg > 2 && dkg / (near.dj/7) > 1.5) out.push({p: pts[i], ref: near.v, dkg, dj: near.dj});
   }
   return out;
+}
+
+/* Détail semaine par semaine (semaines du lundi, comme gym.js) : c'est le seul
+   moyen de distinguer « je m'entraîne moins » de « j'étais en vacances ». */
+function gymSemaines(n){
+  const g = Store.data.gym || {};
+  const lundi = mondayOf(todayKey());
+  const out = [];
+  for(let w = n-1; w >= 0; w--){
+    const debut = addK(lundi, -7*w), fin = addK(debut, 6);
+    let c = 0;
+    for(const k in g) if(g[k] && g[k].go === true && k >= debut && k <= fin) c++;
+    out.push({debut, n: c, encours: w === 0});
+  }
+  return out;
+}
+function gymRythme(){
+  const sem = gymSemaines(8);
+  const pleines = sem.filter(x=>!x.encours);           // la semaine en cours est incomplète
+  if(!pleines.length) return null;
+  const cs = pleines.map(x=>x.n);
+  const actives = cs.filter(c=>c > 0);
+  return {sem, pleines,
+    moy: cs.reduce((a,b)=>a+b, 0) / cs.length,
+    med: median(cs),
+    moyActives: actives.length ? actives.reduce((a,b)=>a+b, 0) / actives.length : 0,
+    zero: cs.length - actives.length,
+    nSem: cs.length};
 }
 
 function gymStats(){
@@ -315,10 +355,24 @@ function secProfil(C, tg){
   L.push('- Protéines — fourchette de l’app : ' + r0(tg.protMin) + '–' + r0(tg.protMax) + ' g/j (1.2–2.0 g/kg) ; repère prise de masse : 1.6–2.2 g/kg = ' +
          r0(1.6*kg) + '–' + r0(2.2*kg) + " g/j (la borne basse de l'app, 1.2 g/kg, est une référence de population générale, pas une cible de prise de masse).");
 
-  const g = gymStats();
-  if(act && g){
-    let l = '- Activité déclarée : ×' + act.f + ' (' + act.desc + ') ; séances réellement enregistrées : ' + f1(g.avg) + '/semaine sur 8 semaines.';
-    if(typeof act.min === 'number' && g.avg < act.min) l += ' Ces deux chiffres ne concordent pas : le TDEE ci-dessus est probablement surestimé.';
+  const ry = gymRythme();
+  if(act && ry){
+    let l = '- Activité déclarée : ×' + act.f + ' (' + act.desc + ') ; séances enregistrées : ' + f1(ry.moy) +
+            '/semaine en moyenne sur ' + ry.nSem + ' semaines complètes';
+    if(ry.zero) l += ', mais ' + f1(ry.moyActives) + '/semaine sur les ' + (ry.nSem - ry.zero) +
+                     ' semaines de présence (' + ry.zero + ' semaine' + (ry.zero>1?'s':'') + ' à 0 — voir le détail en §7)';
+    l += '.';
+    const min = typeof act.min === 'number' ? act.min : null;
+    if(min !== null){
+      if(ry.med < min && ry.moyActives < min){
+        l += (ry.zero ? ' Même en ignorant les semaines sans séance, le rythme' : ' Le rythme enregistré') +
+             ' reste sous le palier déclaré (' + min + '/semaine) : le TDEE ci-dessus est probablement surestimé.';
+      } else if(ry.moy < min){
+        l += ' ⚠️ La moyenne brute est tirée vers le bas par ' + ry.zero + ' semaine' + (ry.zero>1?'s':'') +
+             ' sans séance : une absence (vacances, maladie, déplacement) n’est pas un changement d’habitude.' +
+             ' N’en conclus PAS que le TDEE est surestimé — demande-moi mon rythme habituel avant de toucher à la cible.';
+      }
+    }
     L.push(l);
   }
   if(t.pctMG) L.push('- Masse grasse : ' + t.pctMG + ' % — auto-déclaré, non mesuré : ne l’utilise pas pour recalculer un BMR par Katch-McArdle.');
@@ -485,13 +539,24 @@ function secPoids(C, trend){
 function secSeances(C){
   if(!C.seances.length) return '';
   const g = gymStats();
+  const ry = gymRythme();
   const last = C.seances[C.seances.length-1];
   const L = ['## 7. Séances'];
   let l = C.seances.length + ' séance' + (C.seances.length>1?'s':'') + ' sur la période';
-  if(g) l += ' · ' + f1(g.avg) + ' par semaine en moyenne sur 8 semaines · série en cours : ' + g.streak + ' semaine' + (g.streak>1?'s':'');
+  if(g) l += ' · série en cours : ' + g.streak + ' semaine' + (g.streak>1?'s':'');
   const dj = diffJ(last, todayKey());
   l += ' · dernière séance le ' + last + (dj === 0 ? " (aujourd'hui)." : dj === 1 ? ' (hier).' : ' (il y a ' + dj + ' jours).');
   L.push(l);
+  if(ry){
+    const enCours = ry.sem.find(x=>x.encours);
+    L.push('Séances par semaine sur les 8 dernières semaines (du lundi, de la plus ancienne à la plus récente) : ' +
+           ry.pleines.map(x=>x.n).join(', ') +
+           (enCours ? ' · semaine en cours, incomplète : ' + enCours.n : '') + '.');
+    L.push('Sur les ' + ry.nSem + ' semaines complètes : moyenne ' + f1(ry.moy) + '/semaine, médiane ' + f1(ry.med) + '/semaine' +
+           (ry.zero ? ' — dont ' + ry.zero + ' semaine' + (ry.zero>1?'s':'') + ' à 0 séance, soit ' + f1(ry.moyActives) +
+                      '/semaine sur les semaines de présence.' : '.'));
+    if(ry.zero) L.push('Une semaine à 0 est presque toujours une absence (vacances, maladie, déplacement), pas un changement de rythme : ne juge pas mon niveau d’activité sur la moyenne brute, et demande-moi mon rythme habituel si ça change ton conseil.');
+  }
   L.push('Le suivi n’enregistre QUE la présence : ni exercices, ni charges, ni séries, ni durée. Ne prescris rien en supposant un volume d’entraînement, et ne conclus pas qu’une prise de poids est musculaire — sans charges ni tour de taille, personne ne peut le dire.');
   return L.join('\n');
 }
@@ -527,15 +592,23 @@ function secEau(C){
 function secRecettes(C, sel){
   const list = C.recipes.filter(r=>sel.indexOf(r.id) >= 0);
   if(!list.length && !C.foods.length) return '';
-  const L = ['## 9. Recettes et aliments'];
+  const L = ['## 9. Recettes et aliments',
+             'Les valeurs « pour 100 g » sont là pour que tu chiffres toi-même un changement de quantité : +X g d’un ingrédient = X/100 × ses valeurs pour 100 g. N’utilise pas d’autres valeurs que celles écrites ici.'];
   for(const r of list){
     const t = recTotals(r);
     const b = C.byRecipe[r.id];
     L.push('');
     L.push('### ' + r.nom + ' — ' + r0(t.kcal) + ' kcal, ' + f1(t.prot) + ' g prot, ' + r0(t.poids) + ' g au total' +
            (b ? ' · mangée ' + b.n + ' fois sur la période' : ' · non consommée sur la période'));
-    const ing = (r.items || []).map(it=>it.nom + ' ' + r0(Number(it.qty) || 0) + ' g');
-    L.push(ing.length ? ing.join(' · ') : '_(aucun ingrédient saisi)_');
+    const ing = (r.items || []).map(it=>{
+      const q = Number(it.qty) || 0;
+      const k100 = Number(it.kcal100), p100 = Number(it.prot100);
+      if(!Number.isFinite(k100)) return '- ' + it.nom + ' — ' + itemQty(it) + ' — valeurs pour 100 g non enregistrées dans l’app';
+      const p = Number.isFinite(p100) ? p100 : 0;
+      return '- ' + it.nom + ' — ' + itemQty(it) + ' — ' + r0(k100) + ' kcal et ' + f1(p) + ' g prot pour 100 g' +
+             ' — apporte ' + r0(k100*q/100) + ' kcal, ' + f1(p*q/100) + ' g prot';
+    });
+    L.push(ing.length ? ing.join('\n') : '_(aucun ingrédient saisi)_');
     /* détecteur de dérive : agrégation par recipeId, jamais par nom */
     if(b && b.hist.length && t.kcal > 0){
       const groupes = {};
