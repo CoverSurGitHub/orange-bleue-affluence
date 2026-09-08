@@ -9,11 +9,11 @@
 (function(){
 
 const ACT = [
-  {f:1.2,   label:'Sédentaire',      desc:'travail assis, pas de sport'},
-  {f:1.375, label:'Légèrement actif', desc:'sport léger 1 à 3 j/semaine'},
-  {f:1.55,  label:'Modérément actif', desc:'sport 3 à 5 j/semaine'},
-  {f:1.725, label:'Très actif',       desc:'sport intense 6 à 7 j/semaine'},
-  {f:1.9,   label:'Extrêmement actif',desc:'sport 2×/j ou métier physique'}
+  {f:1.2,   label:'Sédentaire',      desc:'travail assis, pas de sport',    min:0},
+  {f:1.375, label:'Légèrement actif', desc:'sport léger 1 à 3 j/semaine',   min:1},
+  {f:1.55,  label:'Modérément actif', desc:'sport 3 à 5 j/semaine',         min:3},
+  {f:1.725, label:'Très actif',       desc:'sport intense 6 à 7 j/semaine', min:6},
+  {f:1.9,   label:'Extrêmement actif',desc:'sport 2×/j ou métier physique', min:7}
 ];
 const OBJ = [
   {id:'maintien', label:'Maintien',        delta:0},
@@ -50,7 +50,9 @@ window.TDEE = {
       protRNP: 0.83*kg,                      // ANSES population générale
       objectifLabel: obj.label.toLowerCase()
     };
-  }
+  },
+  /* exposés en lecture seule pour l'export IA (assets/export.js) */
+  ACT, OBJ, effectiveWeight, lastWeight
 };
 
 function render(){
@@ -137,6 +139,11 @@ function renderResults(){
         ${km?`<div class="li-row"><div class="grow"><div class="name">Katch-McArdle <span class="muted small">(avec ${t.pctMG} % MG)</span></div></div><div class="val">${r0(km)} <small>kcal</small></div></div>`:''}
       </div>
     </div>
+    <div class="card" style="background:var(--card2)">
+      <button class="btn" id="tExport" style="width:100%">📤 Demander un avis à une IA</button>
+      <p class="set-note" style="margin:8px 0 0">Un rapport texte (repas, poids, séances, recettes) à coller dans
+      ChatGPT, Claude ou Gemini pour qu'il ajuste tes menus.</p>
+    </div>
     <div class="srcnote">
       Sources : BMR — Mifflin-St Jeor (Mifflin MD et al., <i>Am J Clin Nutr</i> 1990;51:241-247), équation recommandée par
       l'Academy of Nutrition and Dietetics · Harris-Benedict révisée par Roza &amp; Shizgal (<i>Am J Clin Nutr</i> 1984) ·
@@ -145,6 +152,8 @@ function renderResults(){
       Déficit ~500 kcal/j ≈ −0,5 kg/semaine (repère NIH/NHS).<br>
       ⚕️ Estimations indicatives — ne remplace pas un avis médical ou diététique personnalisé.
     </div>`;
+  const be = document.getElementById('tExport');
+  if(be) be.addEventListener('click', ()=>window.ExportIA.open());
 }
 
 document.addEventListener('DOMContentLoaded', ()=>{

@@ -61,6 +61,7 @@ function stats(){
   }
   return {thisWeek, thisMonth, thisYear, avg, streak, total:days.length};
 }
+window.Gym = { stats };            // lecture seule, pour l'export IA (assets/export.js)
 
 /* ---- rendu ---- */
 function render(){

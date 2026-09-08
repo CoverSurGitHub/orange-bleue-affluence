@@ -116,6 +116,46 @@ Calcul rigoureux, basé uniquement sur des sources officielles.
 > Le BMR n'est pas un objectif à manger : c'est le plancher physiologique, le
 > point de départ du calcul.
 
+### 🤖 Exporter pour une IA
+
+Deux entrées : **⚙️ Réglages → 🤖 Exporter pour une IA** et le bouton
+**📤 Demander un avis à une IA** en bas de la page TDEE. Produit un rapport
+Markdown (≈ 4 à 12 Ko) à coller dans ChatGPT, Claude ou Gemini, qui peut alors
+proposer des ajustements de menus en désignant les recettes par leur nom exact.
+
+**Réglages** : période (7 j · 30 j par défaut · 90 j · tout) · intention en un tap
+(Ajuster mes menus / Faire le point / Sur mesure) · contenu détaillé (7 cases,
+le profil TDEE étant toujours inclus) · recettes (mangées sur la période /
+toutes / sélection manuelle) · demande libre + contraintes personnelles
+(allergies, budget, temps de cuisine), mémorisées. Aperçu en direct, à droite sur
+grand écran.
+
+**Sortie**, en trois niveaux pour ne jamais tomber en panne :
+presse-papiers → `execCommand` → panneau de texte brut toujours accessible.
+Plus **📤 Partager** (`navigator.share`, surtout sur téléphone) et
+**⬇️ Télécharger .md** (surtout sur ordinateur).
+
+**Ce que le rapport contient** : consigne pour le modèle · mode d'emploi
+anti-hallucination · profil et cibles **telles que l'app les calcule** ·
+fiabilité et angles morts · tableau kcal / protéines jour par jour ·
+composition de chaque journée · pesées et tendance · séances · hydratation ·
+fiches recettes avec ingrédients. L'affluence de la salle en est exclue :
+aucune valeur nutritionnelle, et plus lourde à elle seule que tout le reste.
+
+**Ce que le rapport ne fait jamais** :
+
+- inventer des glucides ou des lipides — ils ne sont pas suivis, et les
+  reconstruire depuis CIQUAL donnerait un total faux (les produits de marque en
+  sont absents) ; le rapport le dit explicitement au modèle ;
+- compter un jour ouvert dans l'app mais vide comme un jour à 0 kcal ;
+- recalculer l'historique depuis les recettes actuelles (les valeurs d'une
+  journée sont figées à la saisie ; le rapport signale plutôt les recettes
+  modifiées depuis) ;
+- imprimer une tendance de poids sans ≥ 8 pesées étalées sur ≥ 14 jours ;
+- sortir autre chose que le **profil actif** : lecture en liste blanche dans
+  `Store.data`, jamais `Store.all`, jamais `shared`, jamais un autre profil,
+  et sans le prénom du profil.
+
 ### 💌 Nous — espace de couple
 
 Espace **commun** aux profils (hors données perso), synchronisé.
@@ -307,6 +347,7 @@ code des sections fonctionne sans savoir que les profils existent.
 | `ob.nousSeen` | dernier passage sur 💌 Nous | ✘ |
 | `ob.optOutRO` | cet appareil tient son propre suivi | ✘ |
 | `ob.lastPage` | dernière section ouverte | ✘ |
+| `ob.export.v1` | réglages de l'export IA | ✘ *(hors du coffre public)* |
 
 ---
 

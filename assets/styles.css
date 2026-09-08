@@ -267,6 +267,35 @@ canvas.chart{height:300px;display:block}
 .thm-mini i{display:block;border-radius:3px}
 .thm-name{display:block;padding:7px 10px 8px;font-size:.78rem;font-weight:700;color:var(--text)}
 
+/* ============ export IA ============ */
+/* fond OPAQUE obligatoire : sur le thème aero, --card vaut rgba(255,255,255,.6)
+   et le rapport défilait visiblement derrière les boutons. Deux couches de --card
+   sur --bg (opaque dans les quatre thèmes) + flou : identique sur les thèmes opaques. */
+.exp-bar{position:sticky;bottom:0;z-index:2;background:var(--card);
+         background:linear-gradient(var(--card),var(--card)),linear-gradient(var(--card),var(--card)),var(--bg);
+         backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+         margin:0 -16px -16px;padding:12px 16px calc(12px + env(safe-area-inset-bottom));
+         box-shadow:0 -8px 20px rgba(0,0,0,.35)}
+.exp-prewrap{position:relative}
+.exp-pre{margin:0;max-height:170px;overflow:auto;white-space:pre-wrap;word-break:break-word;
+         font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.7rem;line-height:1.45;
+         background:var(--field);border:1px solid var(--line2);border-radius:var(--r-s);padding:10px;color:var(--text)}
+.exp-pre.full{max-height:none}
+.exp-prewrap:not(.open)::after{content:'';position:absolute;left:1px;right:1px;bottom:1px;height:44px;
+         pointer-events:none;border-radius:0 0 var(--r-s) var(--r-s);
+         background:linear-gradient(to bottom,rgba(0,0,0,0),var(--card2))}
+button.expfold{background:none;border:0;padding:0;margin:0;color:var(--text);font:inherit;font-size:.86rem;
+         font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;width:100%;text-align:left;min-height:var(--tap)}
+button.expfold .car{margin-left:auto;color:var(--muted)}
+button.expfold[aria-expanded="true"] .car{transform:rotate(180deg)}
+button.expfold span:not(.car){font-weight:400;color:var(--muted);font-size:.76rem}
+button.linkbtn{background:none;border:0;padding:6px 4px;color:var(--muted);font:inherit;font-size:.76rem;
+         text-decoration:underline;cursor:pointer}
+.modal textarea{background:var(--field);color:var(--text);border:1px solid var(--line2);
+         border-radius:var(--r-s);padding:9px 10px;resize:vertical;line-height:1.45}
+
+@media (max-width:767px){ .exp-bar.has-share #expDl{display:none} }
+
 /* ============ toasts ============ */
 #toasts{position:fixed;left:50%;transform:translateX(-50%);z-index:120;display:flex;flex-direction:column;
         gap:8px;align-items:center;bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 12px);width:min(92vw,420px);pointer-events:none}
@@ -317,11 +346,22 @@ canvas.chart{height:300px;display:block}
    ============================================================ */
 @media (min-width:768px){
   .modal-bg{align-items:center}
+  .exp-bar{margin:0 -16px -16px;border-radius:0 0 20px 20px}
   .modal{border-radius:20px;animation:fade .18s ease}
   canvas.chart{height:340px}
   .thm-grid{grid-template-columns:repeat(4,1fr)}
 }
 @media (min-width:1024px){
+  /* export IA : réglages à gauche, aperçu complet et vivant à droite */
+  .modal.wide{max-width:980px}
+  .exp-grid{display:grid;grid-template-columns:360px minmax(0,1fr);gap:16px;align-items:start}
+  .exp-grid .exp-right{position:sticky;top:0;display:flex;flex-direction:column;max-height:calc(88vh - 210px)}
+  .exp-grid .exp-right>.set-group{display:flex;flex-direction:column;min-height:0;margin-bottom:0}
+  .exp-grid .exp-prewrap{flex:1;min-height:0;display:flex}
+  .exp-grid .exp-pre{flex:1;min-height:140px;max-height:none;font-size:.72rem}
+  .exp-grid #expMore{display:none}
+  .exp-grid .exp-prewrap::after{display:none}
+
   body{padding-bottom:24px}
   #app{display:grid;grid-template-columns:228px minmax(0,1fr);min-height:100vh}
   .side{display:flex;flex-direction:column;position:sticky;top:0;height:100vh;

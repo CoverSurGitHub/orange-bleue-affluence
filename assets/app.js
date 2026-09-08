@@ -1,7 +1,7 @@
 /* ===== Noyau : navigation, calendrier commun, store, sync ===== */
 'use strict';
 
-const APP_VERSION = 'mt4x3x1x';   // bumpé à chaque déploiement (voir bump.js)
+const APP_VERSION = 'mtstkgib';   // bumpé à chaque déploiement (voir bump.js)
 
 /* Les DONNÉES (mesures d'affluence + coffre perso) vivent sur la branche `data`,
    séparée du code. Raison : chaque commit sur `main` relance une build GitHub
@@ -778,7 +778,15 @@ function openSettings(){
       </div>
 
       <div class="set-group">
-        <h2>💾 Sauvegarde</h2>
+        <h2>🤖 Exporter pour une IA</h2>
+        <p class="set-note">Un texte à coller dans ChatGPT, Claude ou Gemini : repas, poids, séances,
+        recettes et cibles, avec ce qu'il faut pour qu'il ne raconte pas n'importe quoi.</p>
+        <button class="btn primary" id="expIA" style="width:100%">Créer mon rapport</button>
+      </div>
+
+      <div class="set-group">
+        <h2>💾 Sauvegarde technique (fichier de secours)</h2>
+        <p class="set-note">Copie brute de toutes les données de l'appareil. Ce n'est pas ce qu'on donne à une IA.</p>
         <div style="display:flex;gap:8px">
           <button class="btn" id="expBtn" style="flex:1">⬇️ Exporter (JSON)</button>
           <button class="btn" id="impBtn" style="flex:1">⬆️ Importer</button>
@@ -919,13 +927,22 @@ function openSettings(){
     location.reload();
   });
 
+  /* --- export IA --- */
+  bg.querySelector('#expIA').addEventListener('click', ()=>{ close(); window.ExportIA.open(); });
+
   /* --- sauvegarde --- */
   bg.querySelector('#expBtn').addEventListener('click', ()=>{
-    const blob = new Blob([JSON.stringify(Store.all, null, 1)], {type:'application/json'});
+    const blob = new Blob([JSON.stringify(Store.all, null, 1)], {type:'application/json;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
+    link.href = url;
     link.download = 'perso-' + todayKey() + '.json';
+    link.rel = 'noopener';
+    link.style.display = 'none';
+    document.body.appendChild(link);        // Firefox ignore un clic sur un lien hors du DOM
     link.click();
+    link.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 60000);   // révoquer tout de suite annule le téléchargement
   });
   bg.querySelector('#impBtn').addEventListener('click', ()=>bg.querySelector('#impFile').click());
   bg.querySelector('#impFile').addEventListener('change', e=>{
