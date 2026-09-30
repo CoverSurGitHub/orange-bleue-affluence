@@ -1,7 +1,7 @@
 /* ===== Noyau : navigation, calendrier commun, store, sync ===== */
 'use strict';
 
-const APP_VERSION = 'muome0ae';   // bumpé à chaque déploiement (voir bump.js)
+const APP_VERSION = 'muonft73';   // bumpé à chaque déploiement (voir bump.js)
 
 /* Les DONNÉES (mesures d'affluence + coffre perso) vivent sur la branche `data`,
    séparée du code. Raison : chaque commit sur `main` relance une build GitHub
@@ -290,7 +290,7 @@ const Store = {
    - Sans jeton (visiteur/consultation) : si data/perso.json existe sur le site,
      l'app passe automatiquement en lecture seule sur ces données.            */
 const Sync = {
-  cfgKey: 'ob.sync.cfg',      // {token, owner, repo} — jamais synchronisé
+  cfgKey: 'ob.sync.cfg',      // {owner,repo,token} ou {relay,code} — jamais synchronisé
   FILE: 'data/perso.json',
   get cfg(){ try{ return JSON.parse(localStorage.getItem(this.cfgKey)); }catch(e){ return null; } },
   set cfg(v){ v ? localStorage.setItem(this.cfgKey, JSON.stringify(v)) : localStorage.removeItem(this.cfgKey); },
@@ -330,21 +330,36 @@ const Sync = {
   get dirty(){ return localStorage.getItem('ob.dirty') === '1'; },
   set dirty(v){ v ? localStorage.setItem('ob.dirty','1') : localStorage.removeItem('ob.dirty'); },
 
-  api(path, init={}){
+  /* Deux façons d'atteindre le coffre, la même route dans les deux cas :
+     - en direct, avec un jeton GitHub sur cet appareil ;
+     - via le relais Cloudflare (voir relais/worker.js), qui garde le jeton chez
+       lui et n'accepte que le code partagé. Le relais expose exactement le même
+       chemin que l'API GitHub, donc seuls l'URL et l'en-tête changent. */
+  get viaRelais(){ const c = this.cfg; return !!(c && c.relay); },
+  reqUrl(path, isRead){
     const c = this.cfg;
-    const isRead = !init.method || init.method === 'GET';
     // ⚠️ l'API GitHub répond Cache-Control: max-age=60 → sans ça, on relit une copie périmée
     // `ref` cible la branche de données (le code reste sur main).
     const q = isRead ? `?ref=${DATA_BRANCH}&_=${Date.now()}` : '';
-    return fetch(`https://api.github.com/repos/${c.owner}/${c.repo}/contents/${path}${q}`, {
+    return c.relay ? c.relay.replace(/\/+$/, '') + '/' + path + q
+                   : `https://api.github.com/repos/${c.owner}/${c.repo}/contents/${path}${q}`;
+  },
+  reqHeaders(){
+    const c = this.cfg;
+    // En mode relais on n'envoie QUE X-Code : tout en-tête supplémentaire devrait
+    // être listé dans Access-Control-Allow-Headers du worker, et le relais ajoute
+    // lui-même les en-têtes GitHub.
+    return c.relay ? {'X-Code': c.code}
+                   : {'Accept':'application/vnd.github+json',
+                      'Authorization':'Bearer ' + c.token,
+                      'X-GitHub-Api-Version':'2022-11-28'};
+  },
+  api(path, init={}){
+    const isRead = !init.method || init.method === 'GET';
+    return fetch(this.reqUrl(path, isRead), {
       cache: 'no-store',
       ...init,
-      headers: {
-        'Accept':'application/vnd.github+json',
-        'Authorization':'Bearer ' + c.token,
-        'X-GitHub-Api-Version':'2022-11-28',
-        ...(init.headers||{})
-      }
+      headers: {...this.reqHeaders(), ...(init.headers||{})}
     });
   },
   // fusion des DONNÉES d'un profil, entrée par entrée : la plus récente gagne
@@ -543,10 +558,9 @@ const Sync = {
     try{
       const payload = JSON.stringify(Store.all);
       if(payload.length > 55000) { this.push(); return; }   // trop gros pour keepalive
-      const c = this.cfg;
-      fetch(`https://api.github.com/repos/${c.owner}/${c.repo}/contents/${this.FILE}`, {
+      fetch(this.reqUrl(this.FILE, false), {
         method:'PUT', keepalive:true,
-        headers:{'Accept':'application/vnd.github+json','Authorization':'Bearer '+c.token,'X-GitHub-Api-Version':'2022-11-28'},
+        headers: this.reqHeaders(),
         body: JSON.stringify({message:'perso: '+nowIso(),
           content: btoa(unescape(encodeURIComponent(payload))), sha:this._sha, branch:DATA_BRANCH})
       }).then(r=>{ if(r.ok) this.dirty = false; }).catch(()=>{});
@@ -699,6 +713,25 @@ function openProfiles(){
    mauvais endroit pendant une demi-heure. */
 function syncErrText(err, owner, repo){
   const s = String(err || '');
+  if(Sync.viaRelais){
+    if(s.indexOf('401') >= 0)
+      return 'Code refusé par le relais (401).\n\n'
+           + 'Ce n\'est pas le même que celui enregistré dans Cloudflare, sous le nom CODE. '
+           + 'Attention aux majuscules et aux espaces.';
+    if(s.indexOf('403') >= 0)
+      return 'Le relais a refusé la requête (403).\n\n'
+           + 'Il n\'accepte que le fichier du coffre. Vérifie l\'adresse saisie : '
+           + 'elle doit s\'arrêter au nom du worker, sans rien après.';
+    if(s.indexOf('500') >= 0)
+      return 'Le relais répond, mais il est mal configuré (500).\n\n'
+           + 'Dans Cloudflare, les deux variables GH_TOKEN et CODE doivent exister, '
+           + 'en type « Secret », et le worker doit avoir été redéployé après leur ajout.';
+    if(s.indexOf('404') >= 0 || s.indexOf('Failed') >= 0 || s.indexOf('NetworkError') >= 0)
+      return 'Relais injoignable.\n\n'
+           + 'Vérifie l\'adresse : elle ressemble à https://mon-relais.mon-compte.workers.dev, '
+           + 'sans barre oblique à la fin. Vérifie aussi ta connexion internet.';
+    return 'Échec de connexion au relais : ' + s;
+  }
   if(s.indexOf('401') >= 0)
     return 'Jeton refusé par GitHub (401).\n\n'
          + 'La chaîne collée n\'est pas valide. Dans presque tous les cas elle est incomplète : '
@@ -721,7 +754,13 @@ function syncErrText(err, owner, repo){
 }
 
 function openSettings(){
-  const c = Sync.cfg || {owner:'CoverSurGitHub', repo:'orange-bleue-affluence', token:''};
+  const c = Sync.cfg || {};
+  const cOwner = c.owner || DATA_REPO.split('/')[0];
+  const cRepo  = c.repo  || DATA_REPO.split('/')[1];
+  const cToken = c.token || '';
+  const cRelay = c.relay || '';
+  const cCode  = c.code  || '';
+  let syncMode = c.token ? 'token' : 'relay';        // le relais est le chemin par défaut
   const ap = appearance();
   const goalW = Store.data.settings.objectifPoids;
   const goalMl = (Store.data.water && Store.data.water.goal && Store.data.water.goal.ml) || '';
@@ -786,15 +825,35 @@ function openSettings(){
 
       <div class="set-group">
         <h2>☁️ Synchronisation</h2>
-        <p class="set-note">Avec un jeton : tes données s'enregistrent dans le coffre et se retrouvent sur tous tes appareils.
-        Sans jeton : consultation seule ou données locales. ⚠️ Le coffre vit dans un dépôt public.
-        État : <b>${Sync.cfg ? 'écriture activée' : (Sync.autoRO ? 'consultation seule' : 'locale')}</b></p>
-        <div class="fieldrow">
-          <div class="field"><label for="syncOwner">Propriétaire</label><input id="syncOwner" type="text" value="${esc(c.owner)}" autocapitalize="off"></div>
-          <div class="field"><label for="syncRepo">Dépôt</label><input id="syncRepo" type="text" value="${esc(c.repo)}" autocapitalize="off"></div>
+        <p class="set-note">Une fois connecté, tes données s'enregistrent dans le coffre et se retrouvent sur tous tes
+        appareils. Sinon : consultation seule ou données locales. ⚠️ Le coffre vit dans un dépôt public.
+        État : <b>${Sync.cfg ? (Sync.viaRelais ? 'écriture activée (relais)' : 'écriture activée (jeton)') : (Sync.autoRO ? 'consultation seule' : 'locale')}</b></p>
+
+        <span class="seg" id="syncMode" role="group" aria-label="Mode de connexion">
+          <button class="seg-btn ${syncMode==='relay'?'active':''}" data-m="relay">🔑 Code</button>
+          <button class="seg-btn ${syncMode==='token'?'active':''}" data-m="token">🔐 Jeton GitHub</button>
+        </span>
+
+        <div id="syncRelayBox" style="margin-top:10px;display:${syncMode==='relay'?'':'none'}">
+          <p class="set-note">Le relais garde le jeton GitHub de son côté. Ici tu ne tapes qu'un code,
+          le même sur tous tes appareils.</p>
+          <div class="field"><label for="syncUrl">Adresse du relais</label>
+            <input id="syncUrl" type="url" value="${esc(cRelay)}" placeholder="https://mon-relais.xxx.workers.dev"
+                   autocapitalize="off" autocomplete="off" spellcheck="false"></div>
+          <div class="field"><label for="syncCode">Code</label>
+            <input id="syncCode" type="password" value="${esc(cCode)}" autocomplete="off"></div>
         </div>
-        <div class="field"><label for="syncToken">Jeton (fine-grained, Contents RW sur ce dépôt)</label>
-          <input id="syncToken" type="password" value="${esc(c.token)}" placeholder="github_pat_…" autocomplete="off"></div>
+
+        <div id="syncTokenBox" style="margin-top:10px;display:${syncMode==='token'?'':'none'}">
+          <p class="set-note">Chemin direct, sans relais : un jeton GitHub à coller sur chaque appareil.</p>
+          <div class="fieldrow">
+            <div class="field"><label for="syncOwner">Propriétaire</label><input id="syncOwner" type="text" value="${esc(cOwner)}" autocapitalize="off"></div>
+            <div class="field"><label for="syncRepo">Dépôt</label><input id="syncRepo" type="text" value="${esc(cRepo)}" autocapitalize="off"></div>
+          </div>
+          <div class="field"><label for="syncToken">Jeton (fine-grained, Contents RW sur ce dépôt)</label>
+            <input id="syncToken" type="password" value="${esc(cToken)}" placeholder="github_pat_…" autocomplete="off"></div>
+        </div>
+
         <div class="actions" style="margin-top:4px">
           <button class="btn primary" id="syncSave">Activer l'écriture</button>
           <button class="btn" id="syncNow">🔄 Synchroniser</button>
@@ -854,31 +913,55 @@ function openSettings(){
   });
 
   /* --- synchronisation --- */
+  bg.querySelector('#syncMode').addEventListener('click', e=>{
+    const b = e.target.closest('.seg-btn'); if(!b) return;
+    syncMode = b.dataset.m;
+    bg.querySelectorAll('#syncMode .seg-btn').forEach(x=>x.classList.toggle('active', x.dataset.m === syncMode));
+    bg.querySelector('#syncRelayBox').style.display = syncMode === 'relay' ? '' : 'none';
+    bg.querySelector('#syncTokenBox').style.display = syncMode === 'token' ? '' : 'none';
+  });
+
   bg.querySelector('#syncSave').addEventListener('click', async ()=>{
-    const owner = bg.querySelector('#syncOwner').value.trim();
-    const repo  = bg.querySelector('#syncRepo').value.trim();
-    // Un jeton ne contient JAMAIS d'espace : on les retire tous, y compris les
-    // retours à la ligne qu'un copier-coller depuis une note ajoute au milieu.
-    const token = bg.querySelector('#syncToken').value.replace(/\s+/g, '');
-    if(!owner || !repo || !token){ alert('Remplis les 3 champs.'); return; }
-    // Deux vérifications locales avant d'appeler GitHub : elles évitent un aller-retour
-    // et surtout un « HTTP 401 » qui n'explique rien.
-    if(!/^(github_pat_|ghp_)/.test(token)){
-      alert('Ce n\'est pas un jeton GitHub.\n\n'
-          + 'Un jeton commence par « github_pat_ » (fine-grained) ou « ghp_ » (classique).\n\n'
-          + 'Tu as peut-être collé le NOM que tu lui as donné au lieu de la chaîne secrète. '
-          + 'GitHub ne réaffiche jamais cette chaîne : si tu ne l\'as plus, il faut en générer un nouveau.');
-      return;
-    }
-    if(token.indexOf('github_pat_') === 0 && token.length < 80){
-      alert('Jeton incomplet : ' + token.length + ' caractères collés, il en faut environ 93.\n\n'
-          + 'Il a été coupé au copier-coller. Retourne sur GitHub et utilise le bouton de copie '
-          + 'à droite de la chaîne plutôt que de la sélectionner à la souris.');
-      return;
+    let nouvelleCfg = null, owner = cOwner, repo = cRepo;
+    if(syncMode === 'relay'){
+      let relay = bg.querySelector('#syncUrl').value.trim().replace(/\/+$/, '');
+      const code = bg.querySelector('#syncCode').value;
+      if(!relay || !code){ alert('Il faut l\'adresse du relais et le code.'); return; }
+      // http accepté uniquement en local, pour le serveur de test du projet
+      if(!/^https:\/\//.test(relay) && !/^http:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(relay)){
+        alert('L\'adresse du relais doit commencer par https://\n\n'
+            + 'Elle ressemble à https://mon-relais.mon-compte.workers.dev, et tu la trouves '
+            + 'dans Cloudflare sur la page du worker.');
+        return;
+      }
+      nouvelleCfg = {relay, code};
+    } else {
+      owner = bg.querySelector('#syncOwner').value.trim();
+      repo  = bg.querySelector('#syncRepo').value.trim();
+      // Un jeton ne contient JAMAIS d'espace : on les retire tous, y compris les
+      // retours à la ligne qu'un copier-coller depuis une note ajoute au milieu.
+      const token = bg.querySelector('#syncToken').value.replace(/\s+/g, '');
+      if(!owner || !repo || !token){ alert('Remplis les 3 champs.'); return; }
+      // Deux vérifications locales avant d'appeler GitHub : elles évitent un aller-retour
+      // et surtout un « HTTP 401 » qui n'explique rien.
+      if(!/^(github_pat_|ghp_)/.test(token)){
+        alert('Ce n\'est pas un jeton GitHub.\n\n'
+            + 'Un jeton commence par « github_pat_ » (fine-grained) ou « ghp_ » (classique).\n\n'
+            + 'Tu as peut-être collé le NOM que tu lui as donné au lieu de la chaîne secrète. '
+            + 'GitHub ne réaffiche jamais cette chaîne : si tu ne l\'as plus, il faut en générer un nouveau.');
+        return;
+      }
+      if(token.indexOf('github_pat_') === 0 && token.length < 80){
+        alert('Jeton incomplet : ' + token.length + ' caractères collés, il en faut environ 93.\n\n'
+            + 'Il a été coupé au copier-coller. Retourne sur GitHub et utilise le bouton de copie '
+            + 'à droite de la chaîne plutôt que de la sélectionner à la souris.');
+        return;
+      }
+      nouvelleCfg = {owner, repo, token};
     }
     const btn = bg.querySelector('#syncSave'), libelle = btn.textContent;
     btn.disabled = true; btn.textContent = 'Connexion…';
-    Sync.cfg = {owner, repo, token};
+    Sync.cfg = nouvelleCfg;
     Sync.autoRO = false;
     localStorage.setItem('ob.optOutRO','1');
     await Sync.pull({force:true});
@@ -896,7 +979,7 @@ function openSettings(){
     if(!info) return;
     if(!Sync.cfg){
       info.innerHTML = '<b style="color:var(--warn)">📵 Cet appareil n\'est pas synchronisé.</b> '
-        + 'Tes saisies restent ici. Colle le jeton ci-dessus pour le relier au coffre.';
+        + 'Tes saisies restent ici. Renseigne le code ou le jeton ci-dessus pour le relier au coffre.';
       return;
     }
     let distant = '…';

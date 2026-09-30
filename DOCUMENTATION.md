@@ -258,12 +258,30 @@ Pas de backend. Le dépôt GitHub **sert de coffre** via l'API Contents.
 | | |
 |---|---|
 | **Fichier** | `data/perso.json` sur la branche **`data`** |
-| **Écriture** | jeton GitHub *fine-grained* (Contents RW), collé dans ⚙️ Réglages |
+| **Écriture** | deux chemins au choix : un **code** via le relais Cloudflare (voir [relais/README.md](relais/README.md)), ou un jeton GitHub *fine-grained* (Contents RW) collé sur chaque appareil |
 | **Lecture sans jeton** | consultation seule automatique (un proche ouvre l'URL, rien à configurer) |
 | **Fusion** | *last-write-wins* **par entrée**, profil par profil |
 
 Les données sont **publiques** (dépôt public) — choix assumé : il n'y a qu'un
 poids et des repas.
+
+### Le relais (mode « code »)
+
+Mettre un jeton dans le code d'un site public ne marche pas : le scanner de
+secrets de GitHub le révoque automatiquement en quelques minutes. Le relais
+(`relais/worker.js`, hébergé gratuitement chez Cloudflare Workers) garde le jeton
+de son côté et n'accepte que les requêtes portant le bon code.
+
+Côté app, seule la couche de transport change : `Sync.reqUrl()` et
+`Sync.reqHeaders()` pointent vers le relais avec un en-tête `X-Code` au lieu de
+`Authorization`. Le relais expose exactement la même route que l'API Contents,
+donc `pull`, `push`, la fusion, les conflits 409 et l'envoi `keepalive` ne savent
+même pas qu'il existe.
+
+Le relais n'est pas un proxy générique : il ne sert que `data/perso.json`,
+il impose lui-même la branche `data` et ne recopie que `message`, `content` et
+`sha`. Sans ça, un code volé permettrait d'écrire sur `main`, donc d'injecter du
+code dans le site.
 
 ### Ce qui rend la sync fiable
 
@@ -350,7 +368,7 @@ code des sections fonctionne sans savoir que les profils existent.
 |---|---|---|
 | `ob.perso.v1` | le conteneur complet | ✔ (via le coffre) |
 | `ob.activeProfile` | profil sélectionné | ✘ *(propre à l'appareil)* |
-| `ob.sync.cfg` | jeton + dépôt | ✘ **jamais** |
+| `ob.sync.cfg` | `{relay, code}` ou `{owner, repo, token}` | ✘ **jamais** |
 | `ob.dirty` | modifications en attente | ✘ |
 | `ob.nousSeen` | dernier passage sur 💌 Nous | ✘ |
 | `ob.optOutRO` | cet appareil tient son propre suivi | ✘ |
