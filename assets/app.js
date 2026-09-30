@@ -1,7 +1,7 @@
 /* ===== Noyau : navigation, calendrier commun, store, sync ===== */
 'use strict';
 
-const APP_VERSION = 'mtt08nel';   // bumpé à chaque déploiement (voir bump.js)
+const APP_VERSION = 'muome0ae';   // bumpé à chaque déploiement (voir bump.js)
 
 /* Les DONNÉES (mesures d'affluence + coffre perso) vivent sur la branche `data`,
    séparée du code. Raison : chaque commit sur `main` relance une build GitHub
@@ -695,6 +695,31 @@ function openProfiles(){
 }
 
 /* ===== Réglages (modale, groupes clairs) ===== */
+/* Chaque code HTTP a une cause très différente : les confondre fait chercher au
+   mauvais endroit pendant une demi-heure. */
+function syncErrText(err, owner, repo){
+  const s = String(err || '');
+  if(s.indexOf('401') >= 0)
+    return 'Jeton refusé par GitHub (401).\n\n'
+         + 'La chaîne collée n\'est pas valide. Dans presque tous les cas elle est incomplète : '
+         + 'un jeton fine-grained fait environ 93 caractères et se coupe très facilement '
+         + 'quand on le sélectionne à la souris.\n\n'
+         + 'Refais-en un sur github.com/settings/personal-access-tokens et copie-le avec '
+         + 'le bouton de copie à droite de la chaîne, pas à la main.';
+  if(s.indexOf('404') >= 0)
+    return 'Le jeton est valide, mais il n\'a pas accès à ' + owner + '/' + repo + ' (404).\n\n'
+         + 'Sur GitHub, ouvre ce jeton et vérifie ces trois points :\n'
+         + '1. Resource owner = ' + owner + '\n'
+         + '2. le dépôt ' + repo + ' est bien coché dans « Only select repositories »\n'
+         + '3. Repository permissions, Contents = Read and write';
+  if(s.indexOf('403') >= 0)
+    return 'Accès refusé par GitHub (403).\n\n'
+         + 'Soit la permission Contents est restée en lecture seule, soit tu as atteint '
+         + 'la limite de requêtes. Dans le doute, réessaie dans cinq minutes.';
+  return 'Échec de connexion : ' + s + '\n\nVérifie d\'abord ta connexion internet, '
+       + 'puis le jeton et le nom du dépôt.';
+}
+
 function openSettings(){
   const c = Sync.cfg || {owner:'CoverSurGitHub', repo:'orange-bleue-affluence', token:''};
   const ap = appearance();
@@ -832,13 +857,33 @@ function openSettings(){
   bg.querySelector('#syncSave').addEventListener('click', async ()=>{
     const owner = bg.querySelector('#syncOwner').value.trim();
     const repo  = bg.querySelector('#syncRepo').value.trim();
-    const token = bg.querySelector('#syncToken').value.trim();
+    // Un jeton ne contient JAMAIS d'espace : on les retire tous, y compris les
+    // retours à la ligne qu'un copier-coller depuis une note ajoute au milieu.
+    const token = bg.querySelector('#syncToken').value.replace(/\s+/g, '');
     if(!owner || !repo || !token){ alert('Remplis les 3 champs.'); return; }
+    // Deux vérifications locales avant d'appeler GitHub : elles évitent un aller-retour
+    // et surtout un « HTTP 401 » qui n'explique rien.
+    if(!/^(github_pat_|ghp_)/.test(token)){
+      alert('Ce n\'est pas un jeton GitHub.\n\n'
+          + 'Un jeton commence par « github_pat_ » (fine-grained) ou « ghp_ » (classique).\n\n'
+          + 'Tu as peut-être collé le NOM que tu lui as donné au lieu de la chaîne secrète. '
+          + 'GitHub ne réaffiche jamais cette chaîne : si tu ne l\'as plus, il faut en générer un nouveau.');
+      return;
+    }
+    if(token.indexOf('github_pat_') === 0 && token.length < 80){
+      alert('Jeton incomplet : ' + token.length + ' caractères collés, il en faut environ 93.\n\n'
+          + 'Il a été coupé au copier-coller. Retourne sur GitHub et utilise le bouton de copie '
+          + 'à droite de la chaîne plutôt que de la sélectionner à la souris.');
+      return;
+    }
+    const btn = bg.querySelector('#syncSave'), libelle = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Connexion…';
     Sync.cfg = {owner, repo, token};
     Sync.autoRO = false;
     localStorage.setItem('ob.optOutRO','1');
     await Sync.pull({force:true});
-    if(Sync.status === 'error'){ alert('Échec de connexion : ' + Sync.lastError + '\nVérifie le jeton et le nom du dépôt.'); Sync.cfg = null; }
+    btn.disabled = false; btn.textContent = libelle;
+    if(Sync.status === 'error'){ alert(syncErrText(Sync.lastError, owner, repo)); Sync.cfg = null; }
     else { Sync.schedulePush(); toast('☁️ Écriture activée — données synchronisées'); close(); }
   });
   const offBtn = bg.querySelector('#syncOff');
