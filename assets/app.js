@@ -1,7 +1,7 @@
 /* ===== Noyau : navigation, calendrier commun, store, sync ===== */
 'use strict';
 
-const APP_VERSION = 'muonft73';   // bumpé à chaque déploiement (voir bump.js)
+const APP_VERSION = 'muonu0k4';   // bumpé à chaque déploiement (voir bump.js)
 
 /* Les DONNÉES (mesures d'affluence + coffre perso) vivent sur la branche `data`,
    séparée du code. Raison : chaque commit sur `main` relance une build GitHub
@@ -878,6 +878,14 @@ function openSettings(){
         </div>
       </div>
 
+      ${(!Sync.cfg && !Sync.autoRO && localStorage.getItem('ob.optOutRO')) ? `<div class="set-group">
+        <h2>👁 Revenir en consultation seule</h2>
+        <p class="set-note">Cet appareil n'est relié à rien : il n'affiche que ses propres saisies, et il n'en a aucune.
+        Si tu attendais d'y retrouver tes données, c'est ce bouton qu'il te faut. Il réaffiche les données publiées
+        dans le coffre, sans rien effacer nulle part.</p>
+        <button class="btn primary" id="backRO" style="width:100%">👁 Réafficher les données du coffre</button>
+      </div>` : ''}
+
       ${Sync.autoRO ? `<div class="set-group">
         <h2>👁 Consultation seule</h2>
         <p class="set-note">Cet appareil affiche les données publiées par le propriétaire, sans pouvoir les modifier.</p>
@@ -961,14 +969,33 @@ function openSettings(){
     }
     const btn = bg.querySelector('#syncSave'), libelle = btn.textContent;
     btn.disabled = true; btn.textContent = 'Connexion…';
+    // On mémorise l'état d'avant pour pouvoir le rétablir intégralement : un essai
+    // raté ne doit JAMAIS laisser l'appareil dans un état pire qu'avant l'essai.
+    const cfgAvant = Sync.cfg, roAvant = Sync.autoRO, optOutAvant = localStorage.getItem('ob.optOutRO');
     Sync.cfg = nouvelleCfg;
     Sync.autoRO = false;
-    localStorage.setItem('ob.optOutRO','1');
     await Sync.pull({force:true});
     btn.disabled = false; btn.textContent = libelle;
-    if(Sync.status === 'error'){ alert(syncErrText(Sync.lastError, owner, repo)); Sync.cfg = null; }
-    else { Sync.schedulePush(); toast('☁️ Écriture activée — données synchronisées'); close(); }
+    if(Sync.status === 'error'){
+      alert(syncErrText(Sync.lastError, owner, repo));
+      Sync.cfg = cfgAvant;
+      Sync.autoRO = roAvant;
+      if(!optOutAvant) localStorage.removeItem('ob.optOutRO');
+      Sync.setStatus(cfgAvant || roAvant ? 'ok' : 'off');
+    } else {
+      // Seulement maintenant : cet appareil tient son propre suivi pour de bon.
+      localStorage.setItem('ob.optOutRO','1');
+      Sync.schedulePush();
+      toast('☁️ Écriture activée — données synchronisées');
+      close();
+    }
   });
+  const backRO = bg.querySelector('#backRO');
+  if(backRO) backRO.addEventListener('click', ()=>{
+    localStorage.removeItem('ob.optOutRO');
+    location.reload();
+  });
+
   const offBtn = bg.querySelector('#syncOff');
   if(offBtn) offBtn.addEventListener('click', ()=>{
     if(!confirm('Désactiver la synchronisation sur CET appareil ?\nTes données restent locales et dans le coffre, mais ne circulent plus.')) return;
