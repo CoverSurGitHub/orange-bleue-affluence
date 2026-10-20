@@ -333,31 +333,31 @@ function secProfil(C, tg){
     return L.join('\n');
   }
   const ACT = (window.TDEE.ACT || []);
-  const act = ACT.find(a=>a.f === (t.activite || 1.55)) || null;
-  const OBJ = (window.TDEE.OBJ || []);
-  const obj = OBJ.find(o=>o.id === t.objectif) || null;
-  const kg  = window.TDEE.effectiveWeight(t);
-  /* dernière pesée TOUTES périodes confondues : c'est elle que l'app compare au poids manuel */
-  const wk = Object.keys(d.weights || {}).sort();
-  const last = wk.length ? {k: wk[wk.length-1], kg: Number(d.weights[wk[wk.length-1]].kg)} : null;
+  const act = ACT.find(a=>a.f === tg.pal) || null;
+  const kg  = tg.kg;
+  const wi  = window.TDEE.weightInfo(t);
 
   L.push('- Profil : ' + (t.sexe === 'H' ? 'homme' : 'femme') + ', ' + t.age + ' ans, ' + t.taille + ' cm.');
   const goalW = d.settings && d.settings.objectifPoids;
   L.push('- Objectif : ' + tg.objectifLabel + '. ' +
          (goalW ? 'Poids cible : ' + f1(goalW) + ' kg — aucune échéance renseignée (sans date, ne propose pas de surplus agressif).'
                 : 'Aucun poids cible renseigné.'));
-  let ligneKg = '- Poids utilisé pour les cibles : ' + f1(kg) + ' kg' + (t.poidsManuel ? ' (saisi manuellement)' : ' (dernière pesée)') + '.';
-  if(last) ligneKg += ' Dernière pesée : ' + f1(last.kg) + ' kg le ' + last.k + '.';
-  if(last && Math.abs(last.kg - kg) > 1) ligneKg += ' ⚠️ la cible est calculée sur un poids qui n’est plus celui des pesées.';
-  L.push(ligneKg);
-  L.push('- BMR (Mifflin-St Jeor) : ' + r0(tg.bmr) + ' kcal/j · TDEE (×' + (t.activite || 1.55) + ') : ' + r0(tg.tdee) +
-         ' kcal/j · CIBLE : ' + r0(tg.kcal) + ' kcal/j (' + tg.objectifLabel + (obj ? ', delta ' + sgn(obj.delta) : '') + ').');
+  L.push('- Poids utilisé pour les cibles : ' + f1(kg) + ' kg' +
+         (wi && wi.source === 'pesee' ? ' (dernière pesée, le ' + wi.date + ').' : ' (saisi à la main, aucune pesée enregistrée).'));
+  L.push('- Métabolisme de base (équations de Henry 2005, référence EFSA) : ' + r0(tg.bmr) + ' kcal/j' +
+         ' (Mifflin-St Jeor donnerait ' + r0(tg.bmrMSJ) + ').' +
+         ' Maintien = métabolisme × niveau d’activité PAL ' + tg.pal + ' (échelle EFSA 1.4 / 1.6 / 1.8 / 2.0) = ' + r0(tg.tdee) + ' kcal/j.');
+  L.push('- CIBLE : ' + r0(tg.kcal) + ' kcal/j (' + tg.objectifLabel +
+         (tg.pct ? ', ' + (tg.pct > 0 ? '+' : '') + tg.pct + ' % du maintien, soit ' + sgn(tg.ecart) + ' kcal/j' : '') + ').' +
+         (tg.pct < 0 ? ' Repère HAS : baisse de 15 à 30 % des apports, 1 à 2 kg par mois, jamais sous 1 200 kcal/j.' : '') +
+         (tg.pct > 0 ? ' Repère prise de masse (Iraki et al. 2019) : +5 à +20 % du maintien pour viser +0.25 à +0.5 % du poids par semaine.' : '') +
+         (tg.plancher ? ' La cible a été relevée au plancher de 1 200 kcal/j.' : ''));
   L.push('- Protéines — fourchette de l’app : ' + r0(tg.protMin) + '–' + r0(tg.protMax) + ' g/j (1.2–2.0 g/kg) ; repère prise de masse : 1.6–2.2 g/kg = ' +
          r0(1.6*kg) + '–' + r0(2.2*kg) + " g/j (la borne basse de l'app, 1.2 g/kg, est une référence de population générale, pas une cible de prise de masse).");
 
   const ry = gymRythme();
   if(act && ry){
-    let l = '- Activité déclarée : ×' + act.f + ' (' + act.desc + ') ; séances enregistrées : ' + f1(ry.moy) +
+    let l = '- Activité déclarée : PAL ' + act.f + ', « ' + act.label.toLowerCase() + ' » (' + act.desc + ') ; séances enregistrées : ' + f1(ry.moy) +
             '/semaine en moyenne sur ' + ry.nSem + ' semaines complètes';
     if(ry.zero) l += ', mais ' + f1(ry.moyActives) + '/semaine sur les ' + (ry.nSem - ry.zero) +
                      ' semaines de présence (' + ry.zero + ' semaine' + (ry.zero>1?'s':'') + ' à 0 — voir le détail en §7)';

@@ -93,28 +93,55 @@ cliquable pour modifier (`⚖ 150 g ✎`).
 
 ### 🔥 TDEE — besoins énergétiques
 
-Calcul rigoureux, basé uniquement sur des sources officielles.
+Refait le 20 octobre 2026 sur les références européennes et françaises.
 
-- **Métabolisme de base (BMR)** : **Mifflin-St Jeor** (référence utilisée par l'app)
-  - comparaison affichée avec **Harris-Benedict révisée** et **Katch-McArdle** (si % de masse grasse renseigné)
-  - un écart faible entre les formules = estimation fiable
-- **Facteur d'activité**
+**Métabolisme de base** : équations de **Henry (2005)**, dites « Oxford », avec
+poids et taille. Ce sont celles que le SACN (Royaume-Uni, 2011) puis l'EFSA
+(Union européenne, 2013) ont retenues, parce qu'elles prédisent le mieux le
+métabolisme mesuré. Coefficients : rapport SACN 2011, tableau 18. Mifflin-St
+Jeor reste affichée en comparaison, Katch-McArdle aussi si un % de masse grasse
+est renseigné.
 
-  | Facteur | Niveau | Description |
-  |---|---|---|
-  | ×1,2 | Sédentaire | travail assis, pas de sport |
-  | ×1,375 | Légèrement actif | sport léger 1 à 3 j/semaine |
-  | ×1,55 | Modérément actif | sport 3 à 5 j/semaine |
-  | ×1,725 | Très actif | sport intense 6 à 7 j/semaine |
-  | ×1,9 | Extrêmement actif | sport 2×/j ou métier physique |
+**Niveau d'activité (PAL)** : échelle de l'EFSA.
 
-- **Objectif** : Maintien · Perte (−500 kcal ≈ 0,5 kg/sem) · Perte légère (−300) · Prise / lean bulk (+300)
-- **Repères protéines** : minimum **1,2 g/kg**, maximum conseillé **2,0 g/kg**
-- Le poids est repris automatiquement de la dernière pesée (modifiable)
-- ⚠️ Avertissement si la cible passe **sous le métabolisme de base**
+| PAL | Niveau | Repère |
+|---|---|---|
+| 1,4 | Peu actif | études ou travail assis, peu de marche, pas de sport régulier |
+| 1,6 | Modérément actif | assis la journée, mais 3 à 4 séances de sport par semaine ou une bonne marche chaque jour |
+| 1,8 | Actif | debout une bonne partie de la journée, ou sport presque tous les jours |
+| 2,0 | Très actif | métier physique, ou entraînement intense tous les jours |
 
-> Le BMR n'est pas un objectif à manger : c'est le plancher physiologique, le
-> point de départ du calcul.
+L'ancienne échelle (×1,2 à ×1,9) venait des manuels de musculation. Son
+« sédentaire » à 1,2 correspond, selon l'EFSA, à des personnes en fauteuil qui ne
+marchent pas, mesurées en chambre calorimétrique ; le plancher d'une vie
+ordinaire est 1,35 à 1,4. Les profils existants sont convertis à la volée
+(1,2 → 1,4 ; 1,375 et 1,55 → 1,6 ; 1,725 → 1,8 ; 1,9 → 2,0) avec un message qui
+invite à vérifier.
+
+**Objectif**, en pourcentage du maintien :
+
+| Objectif | Écart | Source |
+|---|---|---|
+| Perte douce | −15 % | HAS 2011 : baisse de 15 à 30 % des apports |
+| Perte | −25 % | idem, 1 à 2 kg par mois jugés réalistes |
+| Maintien | 0 | |
+| Prise lente | +5 % | Iraki et al. 2019, pratiquants avancés |
+| Prise de masse | +10 % | Iraki et al. 2019, bas de la fourchette 10 à 20 % |
+
+Plancher : jamais sous **1 200 kcal/j** en perte (HAS 2011 : en dessous, risque
+de dénutrition et de carences). L'écran affiche le rythme attendu, en kg par mois
+pour une perte, et le repère de prise de 0,25 à 0,5 % du poids par semaine.
+
+**Poids** : la dernière pesée fait foi. Le champ « poids » n'apparaît que pour un
+profil sans aucune pesée. Avant, un poids tapé à la main restait figé et pouvait
+calculer la cible sur un poids vieux de plusieurs semaines.
+
+**Protéines** : ANSES et EFSA 0,83 g/kg/j (population générale) ; sportifs 1,2 à
+2,0 g/kg/j (AND, Dietitians of Canada, ACSM 2016) ; prise de masse 1,6 à 2,2 g/kg/j
+(Iraki et al. 2019), affiché quand l'objectif est une prise.
+
+> Aucune équation ne prédit exactement le métabolisme d'une personne, l'EFSA le
+> dit explicitement. Le vrai juge reste la courbe de poids sur 2 à 3 semaines.
 
 ### 🤖 Exporter pour une IA
 

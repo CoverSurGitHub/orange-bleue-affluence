@@ -1,7 +1,7 @@
 /* ===== Noyau : navigation, calendrier commun, store, sync ===== */
 'use strict';
 
-const APP_VERSION = 'muonu0k4';   // bumpé à chaque déploiement (voir bump.js)
+const APP_VERSION = 'mvgl2f5o';   // bumpé à chaque déploiement (voir bump.js)
 
 /* Les DONNÉES (mesures d'affluence + coffre perso) vivent sur la branche `data`,
    séparée du code. Raison : chaque commit sur `main` relance une build GitHub
