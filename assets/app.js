@@ -1,7 +1,7 @@
 /* ===== Noyau : navigation, calendrier commun, store, sync ===== */
 'use strict';
 
-const APP_VERSION = 'mvgl2f5o';   // bumpé à chaque déploiement (voir bump.js)
+const APP_VERSION = 'mwc1vaz1';   // bumpé à chaque déploiement (voir bump.js)
 
 /* Les DONNÉES (mesures d'affluence + coffre perso) vivent sur la branche `data`,
    séparée du code. Raison : chaque commit sur `main` relance une build GitHub
@@ -10,6 +10,13 @@ const APP_VERSION = 'mvgl2f5o';   // bumpé à chaque déploiement (voir bump.js
 const DATA_REPO   = 'CoverSurGitHub/orange-bleue-affluence';
 const DATA_BRANCH = 'data';
 const DATA_URL = f => `https://raw.githubusercontent.com/${DATA_REPO}/${DATA_BRANCH}/${f}?_=${Date.now()}`;
+/* Coffre des données perso : une base protégée par un simple mot de passe (coffre/worker.js).
+   Lecture publique, écriture avec le mot de passe. Aucun jeton, donc rien n'expire.
+   (L'affluence de la salle, elle, reste lue sur la branche data de GitHub.) */
+const COFFRE_URL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname)
+  ? 'http://127.0.0.1:8787'
+  : 'https://coffre-salle.clashpetit133.workers.dev';
+const COFFRE_PUBLIC = () => COFFRE_URL + '/coffre.json?_=' + Date.now();
 const TZ = 'Europe/Paris';
 const fmtDayKey  = new Intl.DateTimeFormat('fr-CA', {timeZone:TZ, year:'numeric', month:'2-digit', day:'2-digit'});
 const fmtTime    = new Intl.DateTimeFormat('fr-FR', {timeZone:TZ, hour:'2-digit', minute:'2-digit'});
@@ -272,7 +279,7 @@ const Store = {
     if(Sync.cfg) Sync.autoRO = false;      // un jeton d'écriture prime toujours sur la consultation
     if(Sync.autoRO){
       alert('👁 Mode consultation : tu regardes les données publiées, les modifications ne sont pas enregistrées.\n(Pour tenir ton propre suivi sur cet appareil : ⚙️ Réglages → « Mon propre suivi ».)');
-      fetch(DATA_URL(Sync.FILE), {cache:'no-store'}).then(r=>r.ok?r.json():null).then(d=>{
+      fetch(COFFRE_PUBLIC(), {cache:'no-store'}).then(r=>r.ok?r.json():null).then(d=>{
         if(d){ this.all = normalizeAll((d.schemaVersion===2) ? d : wrapV1(d)); document.dispatchEvent(new CustomEvent('storechange')); }
       }).catch(()=>{});
       return;
@@ -495,7 +502,7 @@ const Sync = {
     if(!empty) return;
     const adopt = c => { Store.all = normalizeAll((c.schemaVersion===2) ? c : wrapV1(c)); };
     try{
-      const res = await fetch(DATA_URL(this.FILE), {cache:'no-store'});
+      const res = await fetch(COFFRE_PUBLIC(), {cache:'no-store'});
       if(!res.ok) return;
       const remote = await res.json();
       if(remote.schemaVersion !== 1 && remote.schemaVersion !== 2) return;
@@ -506,7 +513,7 @@ const Sync = {
       this.setStatus('ok');
       setInterval(async ()=>{
         try{
-          const r = await fetch(DATA_URL(this.FILE), {cache:'no-store'});
+          const r = await fetch(COFFRE_PUBLIC(), {cache:'no-store'});
           if(r.ok){ adopt(await r.json());
             document.dispatchEvent(new CustomEvent('profilechange'));
             document.dispatchEvent(new CustomEvent('storechange')); }
@@ -711,56 +718,17 @@ function openProfiles(){
 /* ===== Réglages (modale, groupes clairs) ===== */
 /* Chaque code HTTP a une cause très différente : les confondre fait chercher au
    mauvais endroit pendant une demi-heure. */
-function syncErrText(err, owner, repo){
+function syncErrText(err){
   const s = String(err || '');
-  if(Sync.viaRelais){
-    if(s.indexOf('401') >= 0)
-      return 'Code refusé par le relais (401).\n\n'
-           + 'Ce n\'est pas le même que celui enregistré dans Cloudflare, sous le nom CODE. '
-           + 'Attention aux majuscules et aux espaces.';
-    if(s.indexOf('403') >= 0)
-      return 'Le relais a refusé la requête (403).\n\n'
-           + 'Il n\'accepte que le fichier du coffre. Vérifie l\'adresse saisie : '
-           + 'elle doit s\'arrêter au nom du worker, sans rien après.';
-    if(s.indexOf('500') >= 0)
-      return 'Le relais répond, mais il est mal configuré (500).\n\n'
-           + 'Dans Cloudflare, les deux variables GH_TOKEN et CODE doivent exister, '
-           + 'en type « Secret », et le worker doit avoir été redéployé après leur ajout.';
-    if(s.indexOf('404') >= 0 || s.indexOf('Failed') >= 0 || s.indexOf('NetworkError') >= 0)
-      return 'Relais injoignable.\n\n'
-           + 'Vérifie l\'adresse : elle ressemble à https://mon-relais.mon-compte.workers.dev, '
-           + 'sans barre oblique à la fin. Vérifie aussi ta connexion internet.';
-    return 'Échec de connexion au relais : ' + s;
-  }
-  if(s.indexOf('401') >= 0)
-    return 'Jeton refusé par GitHub (401).\n\n'
-         + 'La chaîne collée n\'est pas valide. Dans presque tous les cas elle est incomplète : '
-         + 'un jeton fine-grained fait environ 93 caractères et se coupe très facilement '
-         + 'quand on le sélectionne à la souris.\n\n'
-         + 'Refais-en un sur github.com/settings/personal-access-tokens et copie-le avec '
-         + 'le bouton de copie à droite de la chaîne, pas à la main.';
-  if(s.indexOf('404') >= 0)
-    return 'Le jeton est valide, mais il n\'a pas accès à ' + owner + '/' + repo + ' (404).\n\n'
-         + 'Sur GitHub, ouvre ce jeton et vérifie ces trois points :\n'
-         + '1. Resource owner = ' + owner + '\n'
-         + '2. le dépôt ' + repo + ' est bien coché dans « Only select repositories »\n'
-         + '3. Repository permissions, Contents = Read and write';
-  if(s.indexOf('403') >= 0)
-    return 'Accès refusé par GitHub (403).\n\n'
-         + 'Soit la permission Contents est restée en lecture seule, soit tu as atteint '
-         + 'la limite de requêtes. Dans le doute, réessaie dans cinq minutes.';
-  return 'Échec de connexion : ' + s + '\n\nVérifie d\'abord ta connexion internet, '
-       + 'puis le jeton et le nom du dépôt.';
+  if(s.indexOf('401') >= 0) return 'Mot de passe refusé par le coffre. Il a peut-être été changé : retape-le dans ⚙️ Réglages.';
+  if(s.indexOf('429') >= 0) return 'Trop d\'essais ratés depuis ce réseau. Réessaie dans une heure.';
+  if(s.indexOf('500') >= 0) return 'Le coffre a rencontré une erreur. Réessaie dans un moment.';
+  return 'Coffre injoignable (' + s + '). Vérifie ta connexion internet.';
 }
 
 function openSettings(){
   const c = Sync.cfg || {};
-  const cOwner = c.owner || DATA_REPO.split('/')[0];
-  const cRepo  = c.repo  || DATA_REPO.split('/')[1];
-  const cToken = c.token || '';
-  const cRelay = c.relay || '';
   const cCode  = c.code  || '';
-  let syncMode = c.token ? 'token' : 'relay';        // le relais est le chemin par défaut
   const ap = appearance();
   const goalW = Store.data.settings.objectifPoids;
   const goalMl = (Store.data.water && Store.data.water.goal && Store.data.water.goal.ml) || '';
@@ -825,37 +793,15 @@ function openSettings(){
 
       <div class="set-group">
         <h2>☁️ Synchronisation</h2>
-        <p class="set-note">Une fois connecté, tes données s'enregistrent dans le coffre et se retrouvent sur tous tes
-        appareils. Sinon : consultation seule ou données locales. ⚠️ Le coffre vit dans un dépôt public.
-        État : <b>${Sync.cfg ? (Sync.viaRelais ? 'écriture activée (relais)' : 'écriture activée (jeton)') : (Sync.autoRO ? 'consultation seule' : 'locale')}</b></p>
-
-        <span class="seg" id="syncMode" role="group" aria-label="Mode de connexion">
-          <button class="seg-btn ${syncMode==='relay'?'active':''}" data-m="relay">🔑 Code</button>
-          <button class="seg-btn ${syncMode==='token'?'active':''}" data-m="token">🔐 Jeton GitHub</button>
-        </span>
-
-        <div id="syncRelayBox" style="margin-top:10px;display:${syncMode==='relay'?'':'none'}">
-          <p class="set-note">Le relais garde le jeton GitHub de son côté. Ici tu ne tapes qu'un code,
-          le même sur tous tes appareils.</p>
-          <div class="field"><label for="syncUrl">Adresse du relais</label>
-            <input id="syncUrl" type="url" value="${esc(cRelay)}" placeholder="https://mon-relais.xxx.workers.dev"
-                   autocapitalize="off" autocomplete="off" spellcheck="false"></div>
-          <div class="field"><label for="syncCode">Code</label>
-            <input id="syncCode" type="password" value="${esc(cCode)}" autocomplete="off"></div>
-        </div>
-
-        <div id="syncTokenBox" style="margin-top:10px;display:${syncMode==='token'?'':'none'}">
-          <p class="set-note">Chemin direct, sans relais : un jeton GitHub à coller sur chaque appareil.</p>
-          <div class="fieldrow">
-            <div class="field"><label for="syncOwner">Propriétaire</label><input id="syncOwner" type="text" value="${esc(cOwner)}" autocapitalize="off"></div>
-            <div class="field"><label for="syncRepo">Dépôt</label><input id="syncRepo" type="text" value="${esc(cRepo)}" autocapitalize="off"></div>
-          </div>
-          <div class="field"><label for="syncToken">Jeton (fine-grained, Contents RW sur ce dépôt)</label>
-            <input id="syncToken" type="password" value="${esc(cToken)}" placeholder="github_pat_…" autocomplete="off"></div>
-        </div>
-
+        <p class="set-note">Avec le mot de passe, tes modifications s'enregistrent dans le coffre et se retrouvent
+        sur tous tes appareils. Sans lui, l'app reste en consultation. Les données se lisent sans mot de passe :
+        seule l'écriture est protégée.
+        État : <b>${Sync.cfg ? 'écriture activée' : (Sync.autoRO ? 'consultation seule' : 'locale')}</b></p>
+        <div class="field"><label for="syncCode" id="syncCodeLbl">Mot de passe</label>
+          <input id="syncCode" type="password" autocomplete="current-password" value="${esc(cCode)}"></div>
+        <div class="small muted" id="syncCodeAide" style="margin:-4px 0 10px"></div>
         <div class="actions" style="margin-top:4px">
-          <button class="btn primary" id="syncSave">Activer l'écriture</button>
+          <button class="btn primary" id="syncSave">Se connecter</button>
           <button class="btn" id="syncNow">🔄 Synchroniser</button>
         </div>
         <div class="small muted" id="syncInfo" style="margin-top:8px" aria-live="polite"></div>
@@ -921,63 +867,43 @@ function openSettings(){
   });
 
   /* --- synchronisation --- */
-  bg.querySelector('#syncMode').addEventListener('click', e=>{
-    const b = e.target.closest('.seg-btn'); if(!b) return;
-    syncMode = b.dataset.m;
-    bg.querySelectorAll('#syncMode .seg-btn').forEach(x=>x.classList.toggle('active', x.dataset.m === syncMode));
-    bg.querySelector('#syncRelayBox').style.display = syncMode === 'relay' ? '' : 'none';
-    bg.querySelector('#syncTokenBox').style.display = syncMode === 'token' ? '' : 'none';
-  });
+  /* Premier appareil : le mot de passe tapé devient celui du coffre. Ensuite, il le vérifie. */
+  fetch(COFFRE_URL + '/etat', {cache:'no-store'}).then(r=>r.json()).then(e=>{
+    if(!bg.isConnected || e.motDePasse) return;
+    bg.querySelector('#syncCodeLbl').textContent = 'Choisis le mot de passe du coffre';
+    bg.querySelector('#syncCodeAide').textContent = 'Premier appareil connecté : ce mot de passe deviendra celui de '
+      + 'tous tes appareils (et de ceux de Faten). Au moins 4 caractères.';
+    bg.querySelector('#syncSave').textContent = 'Choisir ce mot de passe';
+  }).catch(()=>{});
 
   bg.querySelector('#syncSave').addEventListener('click', async ()=>{
-    let nouvelleCfg = null, owner = cOwner, repo = cRepo;
-    if(syncMode === 'relay'){
-      let relay = bg.querySelector('#syncUrl').value.trim().replace(/\/+$/, '');
-      const code = bg.querySelector('#syncCode').value;
-      if(!relay || !code){ alert('Il faut l\'adresse du relais et le code.'); return; }
-      // http accepté uniquement en local, pour le serveur de test du projet
-      if(!/^https:\/\//.test(relay) && !/^http:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(relay)){
-        alert('L\'adresse du relais doit commencer par https://\n\n'
-            + 'Elle ressemble à https://mon-relais.mon-compte.workers.dev, et tu la trouves '
-            + 'dans Cloudflare sur la page du worker.');
-        return;
-      }
-      nouvelleCfg = {relay, code};
-    } else {
-      owner = bg.querySelector('#syncOwner').value.trim();
-      repo  = bg.querySelector('#syncRepo').value.trim();
-      // Un jeton ne contient JAMAIS d'espace : on les retire tous, y compris les
-      // retours à la ligne qu'un copier-coller depuis une note ajoute au milieu.
-      const token = bg.querySelector('#syncToken').value.replace(/\s+/g, '');
-      if(!owner || !repo || !token){ alert('Remplis les 3 champs.'); return; }
-      // Deux vérifications locales avant d'appeler GitHub : elles évitent un aller-retour
-      // et surtout un « HTTP 401 » qui n'explique rien.
-      if(!/^(github_pat_|ghp_)/.test(token)){
-        alert('Ce n\'est pas un jeton GitHub.\n\n'
-            + 'Un jeton commence par « github_pat_ » (fine-grained) ou « ghp_ » (classique).\n\n'
-            + 'Tu as peut-être collé le NOM que tu lui as donné au lieu de la chaîne secrète. '
-            + 'GitHub ne réaffiche jamais cette chaîne : si tu ne l\'as plus, il faut en générer un nouveau.');
-        return;
-      }
-      if(token.indexOf('github_pat_') === 0 && token.length < 80){
-        alert('Jeton incomplet : ' + token.length + ' caractères collés, il en faut environ 93.\n\n'
-            + 'Il a été coupé au copier-coller. Retourne sur GitHub et utilise le bouton de copie '
-            + 'à droite de la chaîne plutôt que de la sélectionner à la souris.');
-        return;
-      }
-      nouvelleCfg = {owner, repo, token};
-    }
+    const code = bg.querySelector('#syncCode').value;
+    if(!code){ alert('Tape le mot de passe.'); return; }
     const btn = bg.querySelector('#syncSave'), libelle = btn.textContent;
     btn.disabled = true; btn.textContent = 'Connexion…';
+    let rep = null, corps = null;
+    try{
+      rep = await fetch(COFFRE_URL + '/connexion', {method:'POST', headers:{'X-Code': code}, cache:'no-store'});
+      try{ corps = await rep.json(); }catch(e){}
+    }catch(e){ rep = null; }
+    if(!rep || !rep.ok){
+      btn.disabled = false; btn.textContent = libelle;
+      alert(!rep ? 'Coffre injoignable. Vérifie ta connexion internet et réessaie.'
+          : rep.status === 401 ? 'Mot de passe incorrect.'
+          : rep.status === 429 ? 'Trop d\'essais ratés depuis ce réseau. Réessaie dans une heure.'
+          : (corps && corps.message) || ('Erreur ' + rep.status));
+      return;
+    }
+    const nouveau = !!(corps && corps.nouveau);
     // On mémorise l'état d'avant pour pouvoir le rétablir intégralement : un essai
     // raté ne doit JAMAIS laisser l'appareil dans un état pire qu'avant l'essai.
     const cfgAvant = Sync.cfg, roAvant = Sync.autoRO, optOutAvant = localStorage.getItem('ob.optOutRO');
-    Sync.cfg = nouvelleCfg;
+    Sync.cfg = {relay: COFFRE_URL, code};
     Sync.autoRO = false;
     await Sync.pull({force:true});
     btn.disabled = false; btn.textContent = libelle;
     if(Sync.status === 'error'){
-      alert(syncErrText(Sync.lastError, owner, repo));
+      alert(syncErrText(Sync.lastError));
       Sync.cfg = cfgAvant;
       Sync.autoRO = roAvant;
       if(!optOutAvant) localStorage.removeItem('ob.optOutRO');
@@ -986,7 +912,8 @@ function openSettings(){
       // Seulement maintenant : cet appareil tient son propre suivi pour de bon.
       localStorage.setItem('ob.optOutRO','1');
       Sync.schedulePush();
-      toast('☁️ Écriture activée — données synchronisées');
+      toast(nouveau ? '🔑 Mot de passe enregistré, écriture activée' : '☁️ Connecté : tes modifications s\'enregistrent');
+      Sync.installLifecycle();
       close();
     }
   });
@@ -1006,7 +933,7 @@ function openSettings(){
     if(!info) return;
     if(!Sync.cfg){
       info.innerHTML = '<b style="color:var(--warn)">📵 Cet appareil n\'est pas synchronisé.</b> '
-        + 'Tes saisies restent ici. Renseigne le code ou le jeton ci-dessus pour le relier au coffre.';
+        + 'Tes saisies restent ici. Tape le mot de passe ci-dessus pour les enregistrer dans le coffre.';
       return;
     }
     let distant = '…';
@@ -1027,7 +954,7 @@ function openSettings(){
   paintInfo();
   const forceBtn = bg.querySelector('#syncForce');
   forceBtn.addEventListener('click', async ()=>{
-    if(!Sync.cfg){ alert('Active d\'abord la synchronisation (jeton).'); return; }
+    if(!Sync.cfg){ alert('Connecte-toi d\'abord avec le mot de passe.'); return; }
     if(!confirm('Remplacer TOUTES les données de cet appareil par celles du coffre ?\n\n'
       + 'À faire seulement si cet appareil affiche une version périmée.\n'
       + 'Ce qui n\'a pas encore été envoyé depuis CET appareil sera perdu.')) return;
@@ -1136,10 +1063,22 @@ document.addEventListener('DOMContentLoaded', ()=>{
   applyAppearance();
   const wanted = localStorage.getItem('ob.lastPage');
   showPage(PAGES.includes(wanted) ? wanted : 'salle');
+  // Ancienne connexion (jeton GitHub ou relais) : elle écrirait dans l'ancien coffre,
+  // qui n'est plus lu. On la retire ; les saisies locales restent, marquées « à
+  // envoyer », et partiront dès que le mot de passe sera tapé.
+  const ancienne = Sync.cfg;
+  if(ancienne && (ancienne.token || ancienne.relay !== COFFRE_URL)){
+    Sync.cfg = null;
+    if(Store.list().some(p => Object.keys(p.data.weights).length || p.data.recipes.length
+         || Object.values(p.data.journal).some(j => (j.eaten||[]).length))) Sync.dirty = true;
+    setTimeout(()=>toast('🔑 Plus de jeton : un simple mot de passe suffit pour enregistrer tes modifications.',
+      {ms:12000, action:{label:'Me connecter', fn:()=>openSettings()}}), 1200);
+  }
   if(Sync.cfg){
     Sync.installLifecycle();
     Sync.syncNow(true);          // récupère, puis renvoie ce qui restait en attente
   } else {
+    Sync.setStatus('off');       // 📵 visible : silence = l'utilisateur croit enregistrer alors que non
     Sync.tryAutoRO();
   }
 });

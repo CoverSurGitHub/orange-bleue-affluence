@@ -285,30 +285,34 @@ Pas de backend. Le dépôt GitHub **sert de coffre** via l'API Contents.
 | | |
 |---|---|
 | **Fichier** | `data/perso.json` sur la branche **`data`** |
-| **Écriture** | deux chemins au choix : un **code** via le relais Cloudflare (voir [relais/README.md](relais/README.md)), ou un jeton GitHub *fine-grained* (Contents RW) collé sur chaque appareil |
+| **Écriture** | un simple **mot de passe**, vérifié par le coffre Cloudflare (voir plus bas) |
 | **Lecture sans jeton** | consultation seule automatique (un proche ouvre l'URL, rien à configurer) |
 | **Fusion** | *last-write-wins* **par entrée**, profil par profil |
 
 Les données sont **publiques** (dépôt public) — choix assumé : il n'y a qu'un
 poids et des repas.
 
-### Le relais (mode « code »)
+### Le coffre à mot de passe (depuis le 11 novembre 2026)
 
-Mettre un jeton dans le code d'un site public ne marche pas : le scanner de
-secrets de GitHub le révoque automatiquement en quelques minutes. Le relais
-(`relais/worker.js`, hébergé gratuitement chez Cloudflare Workers) garde le jeton
-de son côté et n'accepte que les requêtes portant le bon code.
+Les données perso ne sont plus écrites dans GitHub : un jeton GitHub expire (30 jours
+par défaut), et le 7 novembre 2026 plus aucun appareil ne pouvait enregistrer. Elles vivent
+maintenant dans une base D1 chez Cloudflare, derrière un petit programme
+([coffre/worker.js](coffre/worker.js)), à l'adresse
+`https://coffre-salle.clashpetit133.workers.dev`.
 
-Côté app, seule la couche de transport change : `Sync.reqUrl()` et
-`Sync.reqHeaders()` pointent vers le relais avec un en-tête `X-Code` au lieu de
-`Authorization`. Le relais expose exactement la même route que l'API Contents,
-donc `pull`, `push`, la fusion, les conflits 409 et l'envoi `keepalive` ne savent
-même pas qu'il existe.
+- **Lecture publique**, comme avant : la consultation seule marche sans rien configurer.
+- **Écriture avec un mot de passe**, choisi par le premier appareil connecté ; seule son
+  empreinte salée est gardée. 20 essais ratés par heure et par réseau au maximum.
+- L'API imite celle de GitHub pour un seul fichier (sha, conflits 409), donc la couche de
+  synchro de l'app (fusion par entrée, envoi keepalive, ob.dirty) n'a pas changé.
+- Les 60 dernières versions du coffre sont gardées dans la table `historique`.
+- Les anciens réglages (jeton ou relais) sont retirés au démarrage ; les saisies locales
+  restent marquées « à envoyer » et partent dès que le mot de passe est tapé.
+- L'affluence de la salle, elle, reste sur la branche `data` de GitHub (collecteur inchangé).
 
-Le relais n'est pas un proxy générique : il ne sert que `data/perso.json`,
-il impose lui-même la branche `data` et ne recopie que `message`, `content` et
-`sha`. Sans ça, un code volé permettrait d'écrire sur `main`, donc d'injecter du
-code dans le site.
+Redéployer le coffre : `cd coffre` puis `npx.cmd wrangler deploy`. Oublier le mot de passe :
+`npx.cmd wrangler d1 execute coffre-salle --remote --command "DELETE FROM reglages WHERE cle='mdp'"`,
+puis le prochain appareil connecté en choisit un nouveau.
 
 ### Ce qui rend la sync fiable
 

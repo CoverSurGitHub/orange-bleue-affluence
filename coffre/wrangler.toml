@@ -1,0 +1,8 @@
+name = "coffre-salle"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "coffre-salle"
+database_id = "4f8d9700-0615-4530-bba3-330a557ff3b1"
